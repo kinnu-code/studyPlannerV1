@@ -472,6 +472,11 @@ const UI = {
             <label>Number of mock exams</label>
             <input type="number" id="setting-mocks" value="${s.numberOfMocks}" min="0" max="10" />
           </div>
+          <div class="form-group mt-16">
+            <label>Default Weekly Study Schedule</label>
+            <div class="input-hint mb-4">Used to prefill New Plan weekly schedule. You can still adjust it per plan.</div>
+            <div id="settings-schedule-table"></div>
+          </div>
         </div>
 
         <div>

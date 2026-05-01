@@ -9,8 +9,16 @@ const App = {
   setupStep:       1,
   setupInProgress: false,   // Fix 1: true once AI topics are generated
   replanContext:   'full',  // Fix 3: 'full' | 'schedule_only'
+  settingsSchedule:null,
   _rpNewSchedule:  null,
   _currentView:    '',
+
+  _defaultWeeklySchedule() {
+    return {
+      0:{short:0,long:0}, 1:{short:2,long:1}, 2:{short:2,long:1},
+      3:{short:2,long:1}, 4:{short:2,long:1}, 5:{short:2,long:1}, 6:{short:1,long:0}
+    };
+  },
 
   // ── Initialisation ────────────────────────────────────────────────────────
 
@@ -139,10 +147,7 @@ const App = {
     App.setupStep       = 1;
     App.setupTopics     = [];
     App.setupInProgress = false;  // Fix 1: fresh start clears flag
-    App.setupSchedule   = {
-      0:{short:0,long:0}, 1:{short:2,long:1}, 2:{short:2,long:1},
-      3:{short:2,long:1}, 4:{short:2,long:1}, 5:{short:2,long:1}, 6:{short:1,long:0}
-    };
+    App.setupSchedule   = Storage.loadDefaultSchedule() || App._defaultWeeklySchedule();
     UI.showStep(1);
     UI.clearAlert('setup-alert');
     UI.renderScheduleTable('schedule-table-container', App.setupSchedule, sched => {
@@ -470,18 +475,28 @@ const App = {
   renderSettings() {
     const settings = Storage.loadSettings() || DEFAULT_SETTINGS;
     UI.renderSettings(settings, document.getElementById('settings-form'));
+    App.settingsSchedule = Storage.loadDefaultSchedule() || App._defaultWeeklySchedule();
+    UI.renderScheduleTable('settings-schedule-table', App.settingsSchedule, sched => {
+      App.settingsSchedule = sched;
+    });
     UI.renderApiPanel(document.getElementById('api-panel'));
   },
 
   saveSettings() {
     const s = UI.collectSettings(document.getElementById('settings-form'));
     Storage.saveSettings(s);
+    Storage.saveDefaultSchedule(App.settingsSchedule || App._defaultWeeklySchedule());
     UI.showAlert('settings-alert', 'Settings saved.', 'success');
   },
 
   resetSettings() {
     Storage.saveSettings(DEFAULT_SETTINGS);
+    Storage.saveDefaultSchedule(App._defaultWeeklySchedule());
     UI.renderSettings(DEFAULT_SETTINGS, document.getElementById('settings-form'));
+    App.settingsSchedule = Storage.loadDefaultSchedule() || App._defaultWeeklySchedule();
+    UI.renderScheduleTable('settings-schedule-table', App.settingsSchedule, sched => {
+      App.settingsSchedule = sched;
+    });
     UI.showAlert('settings-alert', 'Settings reset to defaults.', 'info');
   },
 };

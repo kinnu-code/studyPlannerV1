@@ -18,6 +18,14 @@ const STATE_LABELS = {
   mastered:    'Mastered',
 };
 
+const STATE_MEANINGS = {
+  not_started: 'No study activity has been scheduled yet.',
+  ready:       'First read is complete and the topic is ready for MCQ practice.',
+  weak:        'Early practice stage after first MCQ; more repetitions are needed.',
+  healthy:     'Good progress with enough MCQ practice for retention.',
+  mastered:    'Target proficiency reached with required MCQ and SR reviews.',
+};
+
 const Chart = {
 
   // ── Timeline (Gantt) ──────────────────────────────────────────────────────
@@ -47,6 +55,9 @@ const Chart = {
     svg.setAttribute('width',  SVG_W);
     svg.setAttribute('height', SVG_H);
     svg.setAttribute('class',  'timeline-svg');
+
+    // Legend at the top for quick reference
+    container.appendChild(Chart._buildLegend());
 
     // ── Background ──────────────────────────────────────────────────────────
     const bg = Chart._rect(0, 0, SVG_W, SVG_H, '#FAFAF8');
@@ -101,7 +112,10 @@ const Chart = {
           const segX = LABEL_W + runStart * DAY_W;
           const segW = (i - runStart) * DAY_W;
           const fill = STATE_COLORS[prev.state] || '#D5D5DC';
-          svg.appendChild(Chart._rect(segX, y + 4, segW, ROW_H - 8, fill, 2));
+          const seg = Chart._rect(segX, y + 4, segW, ROW_H - 8, fill, 2);
+          seg.style.cursor = 'help';
+          Chart._addTitle(seg, `${STATE_LABELS[prev.state] || prev.state}: ${STATE_MEANINGS[prev.state] || ''}`);
+          svg.appendChild(seg);
           runStart = i;
         }
       }
@@ -118,6 +132,8 @@ const Chart = {
           dot.setAttribute('fill', '#FFFFFF');
           dot.setAttribute('stroke', '#1A1A2A');
           dot.setAttribute('stroke-width', '1');
+          dot.style.cursor = 'help';
+          Chart._addTitle(dot, 'SR Review: A spaced-repetition review is due on this day.');
           svg.appendChild(dot);
         }
       });
@@ -131,7 +147,10 @@ const Chart = {
         const di    = Math.round((mockD - start) / 86400000);
         if (di < 0 || di >= totalDays) return;
         const x = LABEL_W + di * DAY_W;
-        svg.appendChild(Chart._line(x, HEADER_H, x, SVG_H - 20, '#E85D3E', 2));
+        const mockLine = Chart._line(x, HEADER_H, x, SVG_H - 20, '#E85D3E', 2);
+        mockLine.style.cursor = 'help';
+        Chart._addTitle(mockLine, `Mock Exam ${mi + 1}: Reserved long session for full exam practice.`);
+        svg.appendChild(mockLine);
         const mlabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         mlabel.setAttribute('x', x + 3);
         mlabel.setAttribute('y', HEADER_H + 12);
@@ -146,24 +165,14 @@ const Chart = {
     // ── Exam date line ───────────────────────────────────────────────────────
     const examLine = Chart._line(LABEL_W + (totalDays - 1) * DAY_W, HEADER_H,
       LABEL_W + (totalDays - 1) * DAY_W, SVG_H - 20, '#1A1A2A', 2);
+    examLine.style.cursor = 'help';
+    Chart._addTitle(examLine, `Exam Day: ${examDate}`);
     svg.appendChild(examLine);
 
     container.appendChild(svg);
 
-    // ── Legend ────────────────────────────────────────────────────────────────
-    const legend = document.createElement('div');
-    legend.className = 'chart-legend';
-    Object.entries(STATE_LABELS).forEach(([state, label]) => {
-      const item = document.createElement('span');
-      item.className = 'legend-item';
-      item.innerHTML = `<span class="legend-dot" style="background:${STATE_COLORS[state]}"></span>${label}`;
-      legend.appendChild(item);
-    });
-    const srItem = document.createElement('span');
-    srItem.className = 'legend-item';
-    srItem.innerHTML = `<span class="legend-dot" style="background:#fff;border:2px solid #1A1A2A"></span>SR Review`;
-    legend.appendChild(srItem);
-    container.appendChild(legend);
+    // Legend at the bottom for easy reference after scrolling through rows
+    container.appendChild(Chart._buildLegend());
   },
 
   // ── Summary donut chart ───────────────────────────────────────────────────
@@ -234,5 +243,31 @@ const Chart = {
     l.setAttribute('stroke', stroke);
     l.setAttribute('stroke-width', width);
     return l;
+  },
+
+  _addTitle(el, text) {
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    t.textContent = text;
+    el.appendChild(t);
+  },
+
+  _buildLegend() {
+    const legend = document.createElement('div');
+    legend.className = 'chart-legend';
+    Object.entries(STATE_LABELS).forEach(([state, label]) => {
+      const item = document.createElement('span');
+      item.className = 'legend-item';
+      item.title = STATE_MEANINGS[state] || label;
+      item.innerHTML = `<span class="legend-dot" style="background:${STATE_COLORS[state]}"></span>${label}`;
+      legend.appendChild(item);
+    });
+
+    const srItem = document.createElement('span');
+    srItem.className = 'legend-item';
+    srItem.title = 'A spaced-repetition review that should be completed on or near that day.';
+    srItem.innerHTML = `<span class="legend-dot" style="background:#fff;border:2px solid #1A1A2A"></span>SR Review`;
+    legend.appendChild(srItem);
+
+    return legend;
   },
 };

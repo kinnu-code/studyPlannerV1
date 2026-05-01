@@ -6,6 +6,7 @@ const KEYS = {
   API_KEY:  'sp_api_key',
   MODEL:    'sp_model',
   SETTINGS: 'sp_settings',
+  DEFAULT_WEEKLY_SCHEDULE: 'sp_default_weekly_schedule',
   PLAN:     'sp_current_plan',
   PLAN_NAME:'sp_plan_name',
 };
@@ -48,6 +49,8 @@ const Storage = {
 
   saveSettings(settings) { Storage.save(KEYS.SETTINGS, settings); },
   loadSettings()         { return Storage.load(KEYS.SETTINGS, null); },
+  saveDefaultSchedule(schedule) { Storage.save(KEYS.DEFAULT_WEEKLY_SCHEDULE, schedule); },
+  loadDefaultSchedule()         { return Storage.load(KEYS.DEFAULT_WEEKLY_SCHEDULE, null); },
 
   // ── Current Plan ──────────────────────────────────────────────────────────
 
