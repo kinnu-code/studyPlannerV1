@@ -323,6 +323,10 @@ const UI = {
 
   renderOverflowOptions(plan, basePlan, container, onSelect) {
     const baseSettings = basePlan?.settings || plan.settings;
+    const effectivePlanMastery = Math.max(2, parseInt(plan.settings.mcqForMastery) || 2);
+    const effectivePlanHealthy = Math.max(1, Math.min(effectivePlanMastery - 1, parseInt(plan.settings.mcqForHealthy) || 1));
+    const effectiveBaseMastery = Math.max(2, parseInt(baseSettings.mcqForMastery) || 2);
+    const effectiveBaseHealthy = Math.max(1, Math.min(effectiveBaseMastery - 1, parseInt(baseSettings.mcqForHealthy) || 1));
 
     const makeCard = (title, desc) => {
       const card = document.createElement('div');
@@ -412,8 +416,8 @@ const UI = {
         optionType: 'lower_mcq_healthy',
         title: 'MCQ sessions required for Healthy',
         desc:  'Lower this to make topics reach Healthy sooner.',
-        current: plan.settings.mcqForHealthy,
-        base: baseSettings.mcqForHealthy,
+        current: effectivePlanHealthy,
+        base: effectiveBaseHealthy,
         min: 1,
         max: 10,
       },
@@ -421,9 +425,9 @@ const UI = {
         optionType: 'lower_mcq_mastery',
         title: 'MCQ sessions required for Mastery',
         desc:  'Lower this to make topics reach Mastered sooner.',
-        current: plan.settings.mcqForMastery,
-        base: baseSettings.mcqForMastery,
-        min: 1,
+        current: effectivePlanMastery,
+        base: effectiveBaseMastery,
+        min: 2,
         max: 15,
       },
       {
@@ -446,6 +450,8 @@ const UI = {
       },
     ];
 
+    const optionInputs = {};
+
     numericOptions.forEach(cfg => {
       const card = makeCard(cfg.title, cfg.desc);
       const input = document.createElement('input');
@@ -453,14 +459,43 @@ const UI = {
       input.min = String(cfg.min);
       input.max = String(cfg.max);
       input.value = String(cfg.current);
+      input.id = `overflow-input-${cfg.optionType}`;
+      optionInputs[cfg.optionType] = input;
       attachControls(
         card,
         input,
         () => {
-          const next = Math.max(cfg.min, Math.min(cfg.max, parseInt(input.value) || cfg.current));
+          let next = Math.max(cfg.min, Math.min(cfg.max, parseInt(input.value) || cfg.current));
+
+          if (cfg.optionType === 'lower_mcq_healthy') {
+            const masteryInput = optionInputs['lower_mcq_mastery'];
+            const mastery = Math.max(2, parseInt(masteryInput?.value) || effectivePlanMastery);
+            next = Math.min(next, mastery - 1);
+          }
+          if (cfg.optionType === 'lower_mcq_mastery') {
+            const healthyInput = optionInputs['lower_mcq_healthy'];
+            const healthy = Math.max(1, parseInt(healthyInput?.value) || effectivePlanHealthy);
+            next = Math.max(next, healthy + 1);
+          }
+
+          input.value = String(next);
           onSelect({ type: 'recalc_option', optionType: cfg.optionType, value: next });
         },
-        () => onSelect({ type: 'reset_option', optionType: cfg.optionType, value: cfg.base })
+        () => {
+          let resetValue = cfg.base;
+          if (cfg.optionType === 'lower_mcq_healthy') {
+            const masteryInput = optionInputs['lower_mcq_mastery'];
+            const mastery = Math.max(2, parseInt(masteryInput?.value) || effectivePlanMastery);
+            resetValue = Math.min(resetValue, mastery - 1);
+          }
+          if (cfg.optionType === 'lower_mcq_mastery') {
+            const healthyInput = optionInputs['lower_mcq_healthy'];
+            const healthy = Math.max(1, parseInt(healthyInput?.value) || effectivePlanHealthy);
+            resetValue = Math.max(resetValue, healthy + 1);
+          }
+          input.value = String(resetValue);
+          onSelect({ type: 'reset_option', optionType: cfg.optionType, value: resetValue });
+        }
       );
       container.appendChild(card);
     });
@@ -597,6 +632,11 @@ const UI = {
     s.mockExamMins         = parseInt(get('setting-mock-mins')?.value) || 120;
     s.mcqForHealthy        = parseInt(get('setting-mcq-healthy')?.value) || 3;
     s.mcqForMastery        = parseInt(get('setting-mcq-mastery')?.value) || 3;
+    s.mcqForMastery        = Math.max(2, s.mcqForMastery);
+    s.mcqForHealthy        = Math.max(1, s.mcqForHealthy);
+    if (s.mcqForHealthy >= s.mcqForMastery) {
+      s.mcqForHealthy = s.mcqForMastery - 1;
+    }
     s.srReviewsForMastery  = parseInt(get('setting-sr-mastery')?.value) || 3;
     s.numberOfMocks        = parseInt(get('setting-mocks')?.value) || 3;
 
@@ -743,9 +783,6 @@ const UI = {
               ${[
                 { id: 'rp-skipped', label: 'I skipped some sessions' },
                 { id: 'rp-ahead',   label: 'I am ahead of schedule' },
-                { id: 'rp-schedule',label: 'Update my weekly schedule' },
-                { id: 'rp-mocks',   label: 'Change number of mock exams' },
-                { id: 'rp-settings',label: 'Update settings' },
                 { id: 'rp-exam',    label: 'Exam date changed' },
               ].map(opt => `
                 <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
@@ -764,37 +801,29 @@ const UI = {
             <label>Ahead by how many sessions?</label>
             <input type="number" id="rp-ahead-count" value="0" min="0" />
           </div>
-          <div id="rp-mocks-panel" class="form-group" style="display:none;">
-            <label>New number of mock exams</label>
-            <input type="number" id="rp-mocks-count" value="${plan.settings.numberOfMocks}" min="0" max="10" />
-          </div>
           <div id="rp-exam-panel" class="form-group" style="display:none;">
             <label>New exam date</label>
             <input type="date" id="rp-exam-date" value="${plan.examDate}" />
-          </div>
-          <div id="rp-schedule-panel" style="display:none;">
-            <label class="mb-4">New weekly schedule</label>
-            <div id="rp-schedule-table"></div>
           </div>
 
           <div class="btn-group mt-16">
             <button class="btn btn-primary" id="rp-generate">Recalculate Plan</button>
             <button class="btn btn-outline" id="rp-cancel">Cancel</button>
+            <button class="btn btn-outline" id="rp-open-settings">Update Settings</button>
           </div>
         </div>
       `;
 
       // Show/hide panels
-      ['skipped','ahead','schedule','mocks','settings','exam'].forEach(key => {
+      ['skipped','ahead','exam'].forEach(key => {
         document.getElementById(`rp-${key}`)?.addEventListener('change', e => {
           const panel = document.getElementById(`rp-${key}-panel`);
           if (panel) panel.style.display = e.target.checked ? '' : 'none';
-          if (key === 'schedule' && e.target.checked) {
-            const newSched = JSON.parse(JSON.stringify(plan.weeklySchedule));
-            UI.renderScheduleTable('rp-schedule-table', newSched, sched => { App._rpNewSchedule = sched; });
-            App._rpNewSchedule = newSched;
-          }
         });
+      });
+
+      document.getElementById('rp-open-settings')?.addEventListener('click', () => {
+        App.navigate('view-settings');
       });
     }
 
@@ -820,14 +849,10 @@ const UI = {
         weeklySchedule: App._rpNewSchedule || plan.weeklySchedule,
         skippedSessions,
         aheadSessions,
-        useLatestSettings: scheduleOnly
-          ? false
-          : !!document.getElementById('rp-settings')?.checked,
+        useLatestSettings: false,
         numberOfMocks:  scheduleOnly
           ? plan.settings.numberOfMocks
-          : (document.getElementById('rp-mocks')?.checked
-            ? parseInt(document.getElementById('rp-mocks-count').value)
-            : plan.settings.numberOfMocks),
+          : plan.settings.numberOfMocks,
       };
       onReplan(updates);
     });

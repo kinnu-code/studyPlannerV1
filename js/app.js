@@ -11,7 +11,9 @@ const App = {
   replanContext:   'full',  // Fix 3: 'full' | 'schedule_only'
   settingsSchedule:null,
   overflowBasePlan:null,
+  updateOptionsBasePlan:null,
   _overflowApplying:false,
+  _updateApplying:false,
   _rpNewSchedule:  null,
   _currentView:    '',
 
@@ -109,6 +111,8 @@ const App = {
         break;
       case 'view-update':
         UI.setTopbarTitle('Update Plan');
+        App.updateOptionsBasePlan = null;
+        App._updateApplying = false;
         App.renderUpdateEntry();
         break;
     }
@@ -249,6 +253,7 @@ const App = {
     const mode      = document.querySelector('input[name="topic-mode"]:checked')?.value || 'exam';
     const examName  = document.getElementById('exam-name-input')?.value?.trim();
     const topicText = document.getElementById('topic-textarea')?.value?.trim();
+    const tips      = document.getElementById('topic-generator-tips')?.value?.trim() || '';
 
     if (mode === 'exam' && !examName) {
       UI.showAlert('setup-alert', 'Please enter the exam name.', 'warn');
@@ -265,13 +270,13 @@ const App = {
     try {
       let topics;
       if (mode === 'exam') {
-        topics = await API.topicsFromExamName(examName, msg => UI.showLoading(msg));
+        topics = await API.topicsFromExamName(examName, tips, msg => UI.showLoading(msg));
       } else if (mode === 'high-level') {
         const lines = topicText.split('\n').map(l => l.trim()).filter(Boolean);
-        topics = await API.topicsFromHighLevel(lines, msg => UI.showLoading(msg));
+        topics = await API.topicsFromHighLevel(lines, tips, msg => UI.showLoading(msg));
       } else {
         const lines = topicText.split('\n').map(l => l.trim()).filter(Boolean);
-        topics = await API.topicsFromGranularList(lines, msg => UI.showLoading(msg));
+        topics = await API.topicsFromGranularList(lines, tips, msg => UI.showLoading(msg));
       }
 
       App.setupTopics     = topics;
@@ -475,6 +480,11 @@ const App = {
       return;
     }
 
+    if (!App._updateApplying) {
+      App.updateOptionsBasePlan = JSON.parse(JSON.stringify(App.currentPlan));
+    }
+    App._updateApplying = false;
+
     // Fix 3: pass context so the form shows/hides the right sections
     UI.renderReplanForm(App.currentPlan, container, App.replanContext, updates => {
       UI.showLoading('Recalculating plan…');
@@ -495,6 +505,61 @@ const App = {
         }
       }, 60);
     });
+
+    const shortcutsWrap = document.createElement('div');
+    shortcutsWrap.className = 'card';
+    shortcutsWrap.innerHTML = `
+      <div class="card-title">Quick Plan-Fit Adjustments</div>
+      <div class="input-hint mb-16">Same flexibility as shortfall controls. Each action recalculates immediately.</div>
+      <div id="update-overflow-controls"></div>
+      <div class="btn-group mt-16">
+        <button class="btn btn-outline" id="btn-update-open-settings">Update Settings</button>
+      </div>
+    `;
+    container.appendChild(shortcutsWrap);
+
+    document.getElementById('btn-update-open-settings')?.addEventListener('click', () => {
+      App.navigate('view-settings');
+    });
+
+    const controlsEl = document.getElementById('update-overflow-controls');
+    UI.renderOverflowOptions(
+      App.currentPlan,
+      App.updateOptionsBasePlan || App.currentPlan,
+      controlsEl,
+      action => {
+        if (action.type === 'update_schedule_nav') {
+          App.replanContext = 'schedule_only';
+          App.renderUpdateEntry();
+          return;
+        }
+
+        if (action.type === 'reset_all_overflow') {
+          if (!App.updateOptionsBasePlan) return;
+          const restored = JSON.parse(JSON.stringify(App.updateOptionsBasePlan));
+          App.currentPlan = restored;
+          Storage.savePlan(restored);
+          App._updateApplying = true;
+          App.renderUpdateEntry();
+          UI.showAlert('update-alert', 'Adjustment reset to original values.', 'info');
+          return;
+        }
+
+        if (action.type !== 'recalc_option' && action.type !== 'reset_option') return;
+        const sourcePlan = action.type === 'reset_option'
+          ? (App.updateOptionsBasePlan || App.currentPlan)
+          : App.currentPlan;
+        const preview = previewOverflowOption(sourcePlan, {
+          type: action.optionType,
+          value: action.value,
+        });
+        App.currentPlan = preview;
+        Storage.savePlan(preview);
+        App._updateApplying = true;
+        App.renderUpdateEntry();
+        UI.showAlert('update-alert', 'Plan recalculated with the selected adjustment.', 'success');
+      }
+    );
   },
 
   // ── Settings ──────────────────────────────────────────────────────────────

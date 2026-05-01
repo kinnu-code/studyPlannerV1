@@ -57,20 +57,20 @@ const API = {
 
   // ── Topic generation ──────────────────────────────────────────────────────
 
-  async generateTopicsFromExam(examName) {
-    const messages = PROMPTS.generateTopicsFromExam(examName);
+  async generateTopicsFromExam(examName, tips = '') {
+    const messages = PROMPTS.generateTopicsFromExam(examName, tips);
     const raw = await API.call(messages);
     return API.parseJSON(raw); // string[]
   },
 
-  async expandHighLevelTopics(topicList) {
-    const messages = PROMPTS.expandHighLevelTopics(topicList);
+  async expandHighLevelTopics(topicList, tips = '') {
+    const messages = PROMPTS.expandHighLevelTopics(topicList, tips);
     const raw = await API.call(messages);
     return API.parseJSON(raw); // string[]
   },
 
-  async sizeTopics(topicList) {
-    const messages = PROMPTS.sizeTopics(topicList);
+  async sizeTopics(topicList, tips = '') {
+    const messages = PROMPTS.sizeTopics(topicList, tips);
     const raw = await API.call(messages);
     const sized = API.parseJSON(raw); // {name, size, justification}[]
 
@@ -86,27 +86,27 @@ const API = {
   // ── Combined flows ────────────────────────────────────────────────────────
 
   /** Mode 1: exam name only → granular topics → sized */
-  async topicsFromExamName(examName, onProgress) {
+  async topicsFromExamName(examName, tips = '', onProgress) {
     onProgress?.('Generating topic list from exam syllabus…');
-    const names = await API.generateTopicsFromExam(examName);
+    const names = await API.generateTopicsFromExam(examName, tips);
     onProgress?.(`Generated ${names.length} topics. Sizing each topic…`);
-    const sized = await API.sizeTopics(names);
+    const sized = await API.sizeTopics(names, tips);
     return sized;
   },
 
   /** Mode 2: high-level topics → expand → sized */
-  async topicsFromHighLevel(highLevelList, onProgress) {
+  async topicsFromHighLevel(highLevelList, tips = '', onProgress) {
     onProgress?.('Expanding high-level topics into granular sub-topics…');
-    const names = await API.expandHighLevelTopics(highLevelList);
+    const names = await API.expandHighLevelTopics(highLevelList, tips);
     onProgress?.(`Expanded to ${names.length} topics. Sizing each topic…`);
-    const sized = await API.sizeTopics(names);
+    const sized = await API.sizeTopics(names, tips);
     return sized;
   },
 
   /** Mode 3: granular list (strings) → sized only */
-  async topicsFromGranularList(nameList, onProgress) {
+  async topicsFromGranularList(nameList, tips = '', onProgress) {
     onProgress?.(`Sizing ${nameList.length} topics…`);
-    const sized = await API.sizeTopics(nameList);
+    const sized = await API.sizeTopics(nameList, tips);
     return sized;
   },
 

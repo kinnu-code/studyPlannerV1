@@ -9,7 +9,10 @@ const PROMPTS = {
    * Generate a full granular topic list from an exam name only.
    * Returns JSON array of topic name strings.
    */
-  generateTopicsFromExam(examName) {
+  generateTopicsFromExam(examName, tips = '') {
+    const tipsBlock = tips && tips.trim()
+      ? `\nAdditional user guidance:\n${tips.trim()}\n`
+      : '';
     return [
       {
         role: 'system',
@@ -28,6 +31,7 @@ Requirements:
 - Use specific, descriptive names (e.g. "Contract Law — Offer and Acceptance" not just "Contracts")
 - Aim for 20–80 topics depending on exam scope
 - Order topics logically (by subject area then subtopic)
+      ${tipsBlock}
 
 Respond with ONLY a JSON array of strings:
 ["Topic 1", "Topic 2", ...]`
@@ -39,8 +43,11 @@ Respond with ONLY a JSON array of strings:
    * Break high-level topics into granular sub-topics.
    * Returns JSON array of topic name strings.
    */
-  expandHighLevelTopics(topicList) {
+  expandHighLevelTopics(topicList, tips = '') {
     const topicsText = topicList.map((t, i) => `${i + 1}. ${t}`).join('\n');
+    const tipsBlock = tips && tips.trim()
+      ? `\nAdditional user guidance:\n${tips.trim()}\n`
+      : '';
     return [
       {
         role: 'system',
@@ -60,6 +67,7 @@ Requirements:
 - Aim for 3–8 sub-topics per high-level topic depending on breadth
 - Total list should be comprehensive enough to cover the subject fully
 - Order logically within each topic area
+      ${tipsBlock}
 
 Respond with ONLY a JSON array of strings:
 ["Sub-topic 1", "Sub-topic 2", ...]`
@@ -71,8 +79,11 @@ Respond with ONLY a JSON array of strings:
    * Assign S/M/L size to each topic based on depth and complexity.
    * Returns JSON array of { name, size, justification } objects.
    */
-  sizeTopics(topicList) {
+  sizeTopics(topicList, tips = '') {
     const topicsText = topicList.map((t, i) => `${i + 1}. ${t}`).join('\n');
+    const tipsBlock = tips && tips.trim()
+      ? `\nAdditional user guidance:\n${tips.trim()}\n`
+      : '';
     return [
       {
         role: 'system',
@@ -95,6 +106,7 @@ For each topic, respond with an object containing:
 - "name": the exact topic name as given
 - "size": "S", "M", or "L"
 - "justification": one short sentence explaining why
+      ${tipsBlock}
 
 Respond with ONLY a JSON array:
 [{"name": "Topic 1", "size": "M", "justification": "..."}, ...]`

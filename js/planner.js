@@ -56,6 +56,19 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
+function normalizePlannerSettings(settings) {
+  const out = { ...settings };
+  out.mcqForMastery = Math.max(2, parseInt(out.mcqForMastery) || 2);
+  out.mcqForHealthy = Math.max(1, parseInt(out.mcqForHealthy) || 1);
+
+  // Constraint: Healthy threshold must stay strictly below Mastery threshold.
+  if (out.mcqForHealthy >= out.mcqForMastery) {
+    out.mcqForHealthy = out.mcqForMastery - 1;
+  }
+
+  return out;
+}
+
 // ── Session grid builder ──────────────────────────────────────────────────────
 
 /**
@@ -157,6 +170,7 @@ function initTopicState(topic) {
     firstReadDone:    carriedFirstRead,
     firstReadP1Date:  useCarry ? (topic.firstReadP1Date || topic.day0 || null) : null,
     firstReadComplete:carriedFirstRead,
+    firstReadCompleteDate: useCarry ? (topic.firstReadCompleteDate || topic.day0 || null) : null,
     srReviewsDue:     [],     // {num, dueDate, scheduled: false}
     mcqCount:         carriedMcq,
     srReviewCount:    carriedSr,
@@ -190,23 +204,23 @@ function scheduleActivity(session, topicState, type, reason, settings, srNum = n
 function applyStateTransitions(ts, settings) {
   if (ts.firstReadComplete && ts.state === 'not_started') {
     ts.state     = 'ready';
-    ts.readyDate = ts.firstReadP1Date; // P1 date approximates readyDate if P2 is same day
+    ts.readyDate = ts.firstReadCompleteDate || ts.firstReadP1Date;
   }
   if (ts.state === 'ready' && ts.mcqCount >= 1) {
     ts.state    = 'weak';
-    ts.weakDate = ts.activities.filter(a => a.type === 'mcq').slice(0, 1)[0]?.date;
+    ts.weakDate = ts.activities.filter(a => a.type === 'mcq').slice(0, 1)[0]?.date || ts.readyDate;
   }
   if (ts.state === 'weak' && ts.mcqCount >= settings.mcqForHealthy) {
     ts.state       = 'healthy';
-    ts.healthyDate = ts.activities.filter(a => a.type === 'mcq')[settings.mcqForHealthy - 1]?.date;
+    ts.healthyDate = ts.activities.filter(a => a.type === 'mcq')[settings.mcqForHealthy - 1]?.date || ts.weakDate;
   }
   if (
-    (ts.state === 'healthy' || ts.state === 'weak') &&
+    ts.state === 'healthy' &&
     ts.mcqCount   >= settings.mcqForMastery &&
     ts.srReviewCount >= settings.srReviewsForMastery
   ) {
     ts.state        = 'mastered';
-    ts.masteredDate = ts.activities.filter(a => a.type === 'mcq')[settings.mcqForMastery - 1]?.date;
+    ts.masteredDate = ts.activities.filter(a => a.type === 'mcq')[settings.mcqForMastery - 1]?.date || ts.healthyDate;
   }
 }
 
@@ -232,6 +246,7 @@ function assignDay0s(topicStates, sessions, settings) {
         ts.firstReadDone    = true;
         ts.firstReadComplete= true;
         ts.firstReadP1Date  = sess.date;
+        ts.firstReadCompleteDate = sess.date;
         assigned = true;
         break;
       }
@@ -260,8 +275,9 @@ function assignDay0s(topicStates, sessions, settings) {
 
         ts.day0              = s1.date;
         ts.firstReadDone     = true;
-        ts.firstReadComplete = true;
+        ts.firstReadComplete = false;
         ts.firstReadP1Date   = s1.date;
+        ts.firstReadCompleteDate = s2.date;
         p1Session            = s1;
         assigned             = true;
         break;
@@ -369,6 +385,14 @@ function fillSessions(topicStates, sessions, settings, examDate) {
 
     const sessDate = parseDate(sess.date);
     if (sessDate >= exam) break;
+
+    // Split first reads become "ready" only once Part 2 date is reached.
+    topicStates.forEach(ts => {
+      if (!ts.firstReadComplete && ts.firstReadCompleteDate && parseDate(ts.firstReadCompleteDate) <= sessDate) {
+        ts.firstReadComplete = true;
+        applyStateTransitions(ts, settings);
+      }
+    });
 
     let keepFilling = true;
     while (keepFilling) {
@@ -550,7 +574,9 @@ function buildStateTimeline(topicStates, startDate, examDate) {
       { date: ts.weakDate,    state: 'weak'     },
       { date: ts.healthyDate, state: 'healthy'  },
       { date: ts.masteredDate,state: 'mastered' },
-    ].filter(c => c.date);
+    ]
+      .filter(c => c.date)
+      .sort((a, b) => a.date.localeCompare(b.date));
 
     const srReviewDates = new Set(
       (ts.activities || [])
@@ -608,7 +634,7 @@ function computeEligibilityDate(topicStates) {
  * }
  */
 function generatePlan(config) {
-  const settings = { ...DEFAULT_SETTINGS, ...config.settings };
+  const settings = normalizePlannerSettings({ ...DEFAULT_SETTINGS, ...config.settings });
   if (config.settings?.activityTimes) {
     settings.activityTimes = {
       ...DEFAULT_SETTINGS.activityTimes,
