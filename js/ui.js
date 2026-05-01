@@ -321,63 +321,147 @@ const UI = {
 
   // ── Overflow negotiation options ──────────────────────────────────────────
 
-  renderOverflowOptions(plan, container, onSelect) {
-    const opts = [
-      {
-        type:  'update_schedule_nav',
-        title: 'Update my weekly schedule',
-        desc:  'Adjust short/long sessions per weekday and recalculate plan fit.',
-      },
-      {
-        type:  'lower_target',
-        title: 'Lower target state to Healthy',
-        desc:  'Accept Healthy instead of Mastered for all topics.',
-        value: 'healthy',
-        impact: () => {
-          const p = previewOverflowOption(plan, { type: 'lower_target', value: 'healthy' });
-          return p.overflow ? `Still ${p.overflow.shortfall} short` : 'Resolves shortfall ✓';
-        },
-      },
-      {
-        type:  'lower_mcq_healthy',
-        title: 'Reduce MCQ sessions needed for Healthy',
-        desc:  `Currently ${plan.settings.mcqForHealthy} — reduce to ${plan.settings.mcqForHealthy - 1}`,
-        value: plan.settings.mcqForHealthy - 1,
-        show:  plan.settings.mcqForHealthy > 1,
-      },
-      {
-        type:  'lower_mcq_mastery',
-        title: 'Reduce MCQ sessions needed for Mastery',
-        desc:  `Currently ${plan.settings.mcqForMastery} — reduce to ${plan.settings.mcqForMastery - 1}`,
-        value: plan.settings.mcqForMastery - 1,
-        show:  plan.settings.mcqForMastery > 2,
-      },
-      {
-        type:  'lower_sr_reviews',
-        title: 'Reduce SR reviews required for Mastery',
-        desc:  `Currently ${plan.settings.srReviewsForMastery} — reduce to ${plan.settings.srReviewsForMastery - 1}`,
-        value: plan.settings.srReviewsForMastery - 1,
-        show:  plan.settings.srReviewsForMastery > 1,
-      },
-      {
-        type:  'fewer_mocks',
-        title: 'Reduce number of mock exams',
-        desc:  `Currently ${plan.settings.numberOfMocks} — reduce to ${plan.settings.numberOfMocks - 1}`,
-        value: plan.settings.numberOfMocks - 1,
-        show:  plan.settings.numberOfMocks > 0,
-      },
-    ];
+  renderOverflowOptions(plan, basePlan, container, onSelect) {
+    const baseSettings = basePlan?.settings || plan.settings;
 
-    container.innerHTML = '<p class="text-sm text-muted mb-16">Choose one or more adjustments to resolve the shortfall:</p>';
-
-    opts.filter(o => o.show !== false).forEach(opt => {
+    const makeCard = (title, desc) => {
       const card = document.createElement('div');
       card.className = 'option-card';
       card.innerHTML = `
-        <div class="option-title">${opt.title}</div>
-        <div class="option-desc">${opt.desc}</div>
+        <div class="option-title">${title}</div>
+        <div class="option-desc">${desc}</div>
       `;
-      card.addEventListener('click', () => onSelect(opt));
+      return card;
+    };
+
+    const attachControls = (card, inputEl, onRecalc, onReset) => {
+      const controls = document.createElement('div');
+      controls.className = 'option-controls';
+
+      inputEl.classList.add('option-input');
+      controls.appendChild(inputEl);
+
+      const recalcBtn = document.createElement('button');
+      recalcBtn.className = 'btn btn-primary btn-sm';
+      recalcBtn.textContent = 'Recalculate';
+      recalcBtn.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        onRecalc();
+      });
+      controls.appendChild(recalcBtn);
+
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'btn btn-outline btn-sm';
+      resetBtn.textContent = 'Reset';
+      resetBtn.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        onReset();
+      });
+      controls.appendChild(resetBtn);
+
+      card.appendChild(controls);
+    };
+
+    container.innerHTML = '<p class="text-sm text-muted mb-16">Choose adjustments, then click Recalculate. Use Reset to revert any option back to the original shortfall values.</p>';
+
+    // Schedule adjustment option
+    const scheduleCard = makeCard(
+      'Update my weekly schedule',
+      'Adjust short/long sessions per weekday and recalculate plan fit.'
+    );
+    const scheduleControls = document.createElement('div');
+    scheduleControls.className = 'option-controls';
+    scheduleControls.innerHTML = `
+      <button class="btn btn-primary btn-sm" data-action="open">Open Schedule Editor</button>
+      <button class="btn btn-outline btn-sm" data-action="reset">Reset</button>
+    `;
+    scheduleControls.querySelector('[data-action="open"]').addEventListener('click', () => {
+      onSelect({ type: 'update_schedule_nav' });
+    });
+    scheduleControls.querySelector('[data-action="reset"]').addEventListener('click', () => {
+      onSelect({ type: 'reset_all_overflow' });
+    });
+    scheduleCard.appendChild(scheduleControls);
+    container.appendChild(scheduleCard);
+
+    // Target state option
+    const targetCard = makeCard(
+      'Target state',
+      'Choose whether the plan target is Healthy or Mastered.'
+    );
+    const targetSelect = document.createElement('select');
+    ['healthy', 'mastered'].forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = v === 'healthy' ? 'Healthy' : 'Mastered';
+      if ((plan.settings.targetState || 'mastered') === v) opt.selected = true;
+      targetSelect.appendChild(opt);
+    });
+    attachControls(
+      targetCard,
+      targetSelect,
+      () => onSelect({ type: 'recalc_option', optionType: 'lower_target', value: targetSelect.value }),
+      () => onSelect({ type: 'reset_option', optionType: 'lower_target', value: baseSettings.targetState || 'mastered' })
+    );
+    container.appendChild(targetCard);
+
+    const numericOptions = [
+      {
+        optionType: 'lower_mcq_healthy',
+        title: 'MCQ sessions required for Healthy',
+        desc:  'Lower this to make topics reach Healthy sooner.',
+        current: plan.settings.mcqForHealthy,
+        base: baseSettings.mcqForHealthy,
+        min: 1,
+        max: 10,
+      },
+      {
+        optionType: 'lower_mcq_mastery',
+        title: 'MCQ sessions required for Mastery',
+        desc:  'Lower this to make topics reach Mastered sooner.',
+        current: plan.settings.mcqForMastery,
+        base: baseSettings.mcqForMastery,
+        min: 1,
+        max: 15,
+      },
+      {
+        optionType: 'lower_sr_reviews',
+        title: 'SR reviews required for Mastery',
+        desc:  'Lower this if full spaced repetition is too tight for your exam date.',
+        current: plan.settings.srReviewsForMastery,
+        base: baseSettings.srReviewsForMastery,
+        min: 1,
+        max: 5,
+      },
+      {
+        optionType: 'fewer_mocks',
+        title: 'Number of mock exams',
+        desc:  'Reduce mocks to free more time for topic completion.',
+        current: plan.settings.numberOfMocks,
+        base: baseSettings.numberOfMocks,
+        min: 0,
+        max: 10,
+      },
+    ];
+
+    numericOptions.forEach(cfg => {
+      const card = makeCard(cfg.title, cfg.desc);
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.min = String(cfg.min);
+      input.max = String(cfg.max);
+      input.value = String(cfg.current);
+      attachControls(
+        card,
+        input,
+        () => {
+          const next = Math.max(cfg.min, Math.min(cfg.max, parseInt(input.value) || cfg.current));
+          onSelect({ type: 'recalc_option', optionType: cfg.optionType, value: next });
+        },
+        () => onSelect({ type: 'reset_option', optionType: cfg.optionType, value: cfg.base })
+      );
       container.appendChild(card);
     });
   },
@@ -512,7 +596,7 @@ const UI = {
     s.longSessionMins      = parseInt(get('setting-long-mins')?.value) || 60;
     s.mockExamMins         = parseInt(get('setting-mock-mins')?.value) || 120;
     s.mcqForHealthy        = parseInt(get('setting-mcq-healthy')?.value) || 3;
-    s.mcqForMastery        = parseInt(get('setting-mcq-mastery')?.value) || 5;
+    s.mcqForMastery        = parseInt(get('setting-mcq-mastery')?.value) || 3;
     s.srReviewsForMastery  = parseInt(get('setting-sr-mastery')?.value) || 3;
     s.numberOfMocks        = parseInt(get('setting-mocks')?.value) || 3;
 

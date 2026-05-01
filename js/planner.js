@@ -17,7 +17,7 @@ const DEFAULT_SETTINGS = {
   shortSessionMins:     25,
   longSessionMins:      60,
   mcqForHealthy:        3,    // total MCQ sessions to reach Healthy
-  mcqForMastery:        5,    // total MCQ sessions to reach Mastery
+  mcqForMastery:        3,    // total MCQ sessions to reach Mastery
   srReviewsForMastery:  3,    // min SR reviews required for Mastery
   numberOfMocks:        3,
   activityTimes: {

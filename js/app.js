@@ -10,6 +10,8 @@ const App = {
   setupInProgress: false,   // Fix 1: true once AI topics are generated
   replanContext:   'full',  // Fix 3: 'full' | 'schedule_only'
   settingsSchedule:null,
+  overflowBasePlan:null,
+  _overflowApplying:false,
   _rpNewSchedule:  null,
   _currentView:    '',
 
@@ -359,6 +361,13 @@ const App = {
 
   showPlan(plan) {
     if (!plan) { App.navigate('view-home'); return; }
+
+    // Keep a stable baseline while iterating through overflow adjustments.
+    if (!App._overflowApplying) {
+      App.overflowBasePlan = plan?.overflow ? JSON.parse(JSON.stringify(plan)) : null;
+    }
+    App._overflowApplying = false;
+
     UI.showView('view-plan');
     App._currentView = 'view-plan';
     App._updateResumeButton();
@@ -371,14 +380,32 @@ const App = {
     const overflowOpts = document.getElementById('plan-overflow-options');
     if (plan.overflow && overflowOpts) {
       overflowOpts.style.display = '';
-      UI.renderOverflowOptions(plan, overflowOpts, opt => {
-        if (opt.type === 'update_schedule_nav') {
+      UI.renderOverflowOptions(plan, App.overflowBasePlan || plan, overflowOpts, action => {
+        if (action.type === 'update_schedule_nav') {
           // Fix 3: navigate to update view but only show schedule controls
           App.replanContext = 'schedule_only';
           App.navigate('view-update');
           return;
         }
-        const preview = previewOverflowOption(plan, opt);
+
+        if (action.type === 'reset_all_overflow') {
+          if (!App.overflowBasePlan) return;
+          const restored = JSON.parse(JSON.stringify(App.overflowBasePlan));
+          App.currentPlan = restored;
+          Storage.savePlan(restored);
+          App.showPlan(restored);
+          return;
+        }
+
+        if (action.type !== 'recalc_option' && action.type !== 'reset_option') return;
+        const sourcePlan = action.type === 'reset_option'
+          ? (App.overflowBasePlan || plan)
+          : plan;
+        const preview = previewOverflowOption(sourcePlan, {
+          type: action.optionType,
+          value: action.value,
+        });
+        App._overflowApplying = true;
         App.currentPlan = preview;
         Storage.savePlan(preview);
         App.showPlan(preview);
