@@ -19,6 +19,7 @@ const PROMPTS = {
         content: `You are an expert study planner with deep knowledge of professional and academic exam syllabuses.
 Your task is to generate a comprehensive, granular list of study topics for a given exam.
 Topics should be at the level of a single focused study session (not chapters or broad themes).
+You MUST follow any explicit user constraints provided under "Additional user guidance" whenever possible.
 Respond ONLY with a valid JSON array of strings — no explanation, no markdown, no code fences.`
       },
       {
@@ -31,7 +32,8 @@ Requirements:
 - Use specific, descriptive names (e.g. "Contract Law — Offer and Acceptance" not just "Contracts")
 - Aim for 20–80 topics depending on exam scope
 - Order topics logically (by subject area then subtopic)
-      ${tipsBlock}
+
+${tipsBlock}
 
 Respond with ONLY a JSON array of strings:
 ["Topic 1", "Topic 2", ...]`
@@ -53,6 +55,7 @@ Respond with ONLY a JSON array of strings:
         role: 'system',
         content: `You are an expert study planner. You break broad subject areas into specific, granular study topics.
 Topics should be at the level of a single focused study session.
+      You MUST follow any explicit user constraints provided under "Additional user guidance" whenever possible.
 Respond ONLY with a valid JSON array of strings — no explanation, no markdown, no code fences.`
       },
       {
@@ -67,7 +70,8 @@ Requirements:
 - Aim for 3–8 sub-topics per high-level topic depending on breadth
 - Total list should be comprehensive enough to cover the subject fully
 - Order logically within each topic area
-      ${tipsBlock}
+
+${tipsBlock}
 
 Respond with ONLY a JSON array of strings:
 ["Sub-topic 1", "Sub-topic 2", ...]`
@@ -94,6 +98,7 @@ Size definitions:
 - M (Medium): moderate depth, typical topic with several sub-concepts. First read ~35 min.
 - L (Large): broad topic with many sub-concepts, significant memorisation, or high complexity. First read ~50 min.
 
+You MUST follow any explicit user constraints provided under "Additional user guidance" whenever possible.
 Respond ONLY with a valid JSON array — no explanation, no markdown, no code fences.`
       },
       {
@@ -106,7 +111,8 @@ For each topic, respond with an object containing:
 - "name": the exact topic name as given
 - "size": "S", "M", or "L"
 - "justification": one short sentence explaining why
-      ${tipsBlock}
+
+${tipsBlock}
 
 Respond with ONLY a JSON array:
 [{"name": "Topic 1", "size": "M", "justification": "..."}, ...]`

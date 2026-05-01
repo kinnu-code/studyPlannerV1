@@ -5,6 +5,21 @@
 
 const REASONING_MODELS = new Set(['o1', 'o1-mini', 'o3', 'o3-mini', 'o4-mini', 'o1-preview']);
 
+function extractTopicLimit(tips = '') {
+  const text = String(tips || '');
+  const m = text.match(/(?:limit|no\s+more\s+than|max(?:imum)?|cap(?:\s+at)?|exactly)\D{0,80}(\d{1,3})/i);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+function applyTopicLimit(list, tips = '') {
+  const cap = extractTopicLimit(tips);
+  if (!cap) return list;
+  return list.slice(0, cap);
+}
+
 const API = {
 
   // ── Core call ─────────────────────────────────────────────────────────────
@@ -88,7 +103,11 @@ const API = {
   /** Mode 1: exam name only → granular topics → sized */
   async topicsFromExamName(examName, tips = '', onProgress) {
     onProgress?.('Generating topic list from exam syllabus…');
-    const names = await API.generateTopicsFromExam(examName, tips);
+    const namesRaw = await API.generateTopicsFromExam(examName, tips);
+    const names = applyTopicLimit(namesRaw, tips);
+    if (names.length !== namesRaw.length) {
+      onProgress?.(`Applied topic limit from guidance: ${names.length} topics retained.`);
+    }
     onProgress?.(`Generated ${names.length} topics. Sizing each topic…`);
     const sized = await API.sizeTopics(names, tips);
     return sized;
@@ -97,7 +116,11 @@ const API = {
   /** Mode 2: high-level topics → expand → sized */
   async topicsFromHighLevel(highLevelList, tips = '', onProgress) {
     onProgress?.('Expanding high-level topics into granular sub-topics…');
-    const names = await API.expandHighLevelTopics(highLevelList, tips);
+    const namesRaw = await API.expandHighLevelTopics(highLevelList, tips);
+    const names = applyTopicLimit(namesRaw, tips);
+    if (names.length !== namesRaw.length) {
+      onProgress?.(`Applied topic limit from guidance: ${names.length} topics retained.`);
+    }
     onProgress?.(`Expanded to ${names.length} topics. Sizing each topic…`);
     const sized = await API.sizeTopics(names, tips);
     return sized;
@@ -105,8 +128,12 @@ const API = {
 
   /** Mode 3: granular list (strings) → sized only */
   async topicsFromGranularList(nameList, tips = '', onProgress) {
-    onProgress?.(`Sizing ${nameList.length} topics…`);
-    const sized = await API.sizeTopics(nameList, tips);
+    const limited = applyTopicLimit(nameList, tips);
+    if (limited.length !== nameList.length) {
+      onProgress?.(`Applied topic limit from guidance: ${limited.length} topics retained.`);
+    }
+    onProgress?.(`Sizing ${limited.length} topics…`);
+    const sized = await API.sizeTopics(limited, tips);
     return sized;
   },
 
