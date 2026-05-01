@@ -44,6 +44,8 @@
   <div id="main">
     <div id="topbar">
       <span class="topbar-title" id="topbar-title">Smart Study Planner</span>
+      <!-- Fix 1: Resume setup button — only visible mid-wizard when user navigates away -->
+      <button class="btn btn-primary btn-sm" id="btn-resume-setup" style="display:none;">↩ Resume Plan Setup</button>
       <span class="topbar-badge" id="api-status-badge"></span>
       <span class="topbar-badge" id="topbar-badge" style="display:none;"></span>
     </div>
@@ -203,6 +205,7 @@
               The plan will use your saved settings. You can adjust spaced repetition intervals, session lengths, and MCQ thresholds in <strong>Settings</strong> before generating.
             </div>
             <div class="btn-group mt-16">
+              <button class="btn btn-outline" id="btn-goto-settings">Open Settings</button>
               <button class="btn btn-primary btn-lg" id="btn-step3-generate">🚀 Generate Plan</button>
               <button class="btn btn-outline" id="btn-step3-back">← Back</button>
             </div>

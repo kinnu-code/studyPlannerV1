@@ -52,6 +52,10 @@ function parseDate(s) {
   return new Date(y, m - 1, d);
 }
 
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
 // ── Session grid builder ──────────────────────────────────────────────────────
 
 /**
@@ -133,21 +137,29 @@ function actDuration(type, size, settings) {
 }
 
 function initTopicState(topic) {
+  const useCarry = topic.__carryForward === true;
+  const carriedMcq = useCarry ? Math.max(0, parseInt(topic.mcqCount) || 0) : 0;
+  const carriedSr  = useCarry ? Math.max(0, parseInt(topic.srReviewCount) || 0) : 0;
+  const carriedFirstRead = useCarry
+    ? (!!topic.firstReadComplete || carriedMcq > 0 || carriedSr > 0 || !!topic.day0)
+    : false;
+  const { __carryForward, ...cleanTopic } = topic;
+
   return {
-    ...topic,
+    ...cleanTopic,
     state:            'not_started',
     dueReview:        false,
-    day0:             null,
+    day0:             useCarry ? (topic.day0 || null) : null,
     readyDate:        null,
     weakDate:         null,
     healthyDate:      null,
     masteredDate:     null,
-    firstReadDone:    false,  // P1 scheduled?
-    firstReadP1Date:  null,
-    firstReadComplete:false,  // both parts done
+    firstReadDone:    carriedFirstRead,
+    firstReadP1Date:  useCarry ? (topic.firstReadP1Date || topic.day0 || null) : null,
+    firstReadComplete:carriedFirstRead,
     srReviewsDue:     [],     // {num, dueDate, scheduled: false}
-    mcqCount:         0,
-    srReviewCount:    0,
+    mcqCount:         carriedMcq,
+    srReviewCount:    carriedSr,
     activities:       [],
   };
 }
@@ -205,6 +217,8 @@ function assignDay0s(topicStates, sessions, settings) {
   const shortSessions = sessions.filter(s => s.type === 'short');
 
   for (const ts of topicStates) {
+    if (ts.firstReadComplete) continue;
+
     const readDur = actDuration('first_read', ts.size, settings);
     let assigned  = false;
 
@@ -328,11 +342,12 @@ function buildSRQueue(topicStates, settings) {
     if (!ts.day0) continue;
     const day0 = parseDate(ts.day0);
     const dueDates = computeSRDates(day0, settings.srIntervals);
+    const useCarry = ts.__carryForward === true;
     ts.srReviewsDue = dueDates.map((d, i) => ({
       topicId:   ts.id,
       reviewNum: i + 1,
       dueDate:   dateStr(d),
-      scheduled: false,
+      scheduled: useCarry ? (i < ts.srReviewCount) : false,
     }));
     queue.push(...ts.srReviewsDue);
   }
@@ -679,15 +694,26 @@ function generatePlan(config) {
  */
 function replan(existingPlan, updates) {
   const today     = updates.currentDate || dateStr(new Date());
+
+  const skippedSessions = Math.max(0, parseInt(updates.skippedSessions) || 0);
+  const aheadSessions   = Math.max(0, parseInt(updates.aheadSessions) || 0);
+  const carryForward    = extractCarryForwardProgress(existingPlan, today, {
+    skippedSessions,
+    aheadSessions,
+  });
+
   const newConfig = {
     name:           existingPlan.name,
     topics:         existingPlan.topics.map(t => ({
       id:   t.id,
       name: t.name,
       size: t.size,
-      // Carry forward MCQ and SR counts so the algorithm knows where each topic is
-      mcqCount:      t.mcqCount,
-      srReviewCount: t.srReviewCount,
+      __carryForward:    true,
+      day0:              carryForward[t.id]?.day0 || null,
+      firstReadP1Date:   carryForward[t.id]?.firstReadP1Date || null,
+      firstReadComplete: !!carryForward[t.id]?.firstReadComplete,
+      mcqCount:          carryForward[t.id]?.mcqCount || 0,
+      srReviewCount:     carryForward[t.id]?.srReviewCount || 0,
     })),
     examDate:       updates.examDate       || existingPlan.examDate,
     startDate:      today,
@@ -700,6 +726,71 @@ function replan(existingPlan, updates) {
   };
 
   return generatePlan(newConfig);
+}
+
+function extractCarryForwardProgress(existingPlan, currentDate, adjustments = {}) {
+  const skipped = Math.max(0, parseInt(adjustments.skippedSessions) || 0);
+  const ahead   = Math.max(0, parseInt(adjustments.aheadSessions) || 0);
+
+  const allSessions = (existingPlan.schedule || [])
+    .flatMap(day => day.sessions || [])
+    .filter(s => Array.isArray(s.activities) && s.activities.length > 0)
+    .sort((a, b) => {
+      const byDate = (a.date || '').localeCompare(b.date || '');
+      if (byDate !== 0) return byDate;
+      return (a.id || '').localeCompare(b.id || '');
+    });
+
+  const expectedDone = allSessions.filter(s => (s.date || '') < currentDate).length;
+  const actualDone = clamp(expectedDone - skipped + ahead, 0, allSessions.length);
+  const completedSessions = allSessions.slice(0, actualDone);
+
+  const progress = {};
+  for (const t of existingPlan.topics || []) {
+    progress[t.id] = {
+      day0: null,
+      firstReadP1Date: null,
+      firstReadComplete: false,
+      _p1: false,
+      _p2: false,
+      mcqCount: 0,
+      srReviewCount: 0,
+    };
+  }
+
+  completedSessions.forEach(session => {
+    (session.activities || []).forEach(act => {
+      if (!act.topicId || !progress[act.topicId]) return;
+      const p = progress[act.topicId];
+
+      if (act.type === 'first_read') {
+        p.firstReadComplete = true;
+        p.day0 = p.day0 || act.date;
+        p.firstReadP1Date = p.firstReadP1Date || act.date;
+      } else if (act.type === 'first_read_p1') {
+        p._p1 = true;
+        p.day0 = p.day0 || act.date;
+        p.firstReadP1Date = p.firstReadP1Date || act.date;
+      } else if (act.type === 'first_read_p2') {
+        p._p2 = true;
+        p.day0 = p.day0 || act.date;
+      } else if (act.type === 'mcq') {
+        p.mcqCount += 1;
+      } else if (act.type === 'sr_review') {
+        p.srReviewCount += 1;
+      }
+    });
+  });
+
+  Object.values(progress).forEach(p => {
+    if (!p.firstReadComplete && p._p1 && p._p2) {
+      p.firstReadComplete = true;
+    }
+    delete p._p1;
+    delete p._p2;
+  });
+
+  return progress;
 }
 
 // ── Overflow negotiation helpers ──────────────────────────────────────────────

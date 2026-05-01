@@ -324,6 +324,11 @@ const UI = {
   renderOverflowOptions(plan, container, onSelect) {
     const opts = [
       {
+        type:  'update_schedule_nav',
+        title: 'Update my weekly schedule',
+        desc:  'Adjust short/long sessions per weekday and recalculate plan fit.',
+      },
+      {
         type:  'lower_target',
         title: 'Lower target state to Healthy',
         desc:  'Accept Healthy instead of Mastered for all topics.',
@@ -603,84 +608,137 @@ const UI = {
 
   // ── Replan form ───────────────────────────────────────────────────────────
 
-  renderReplanForm(plan, container, onReplan) {
-    container.innerHTML = `
-      <div class="card">
-        <div class="card-title">Update existing plan</div>
-        <div class="alert alert-info">
-          Current plan: <strong>${plan.name}</strong> — Exam: ${plan.examDate}
-        </div>
+  renderReplanForm(plan, container, context = 'full', onReplan) {
+    if (typeof context === 'function') {
+      onReplan = context;
+      context = 'full';
+    }
 
-        <div class="form-group mt-16">
-          <label>What needs updating?</label>
-          <div id="replan-checkboxes">
-            ${[
-              { id: 'rp-skipped', label: 'I skipped some sessions' },
-              { id: 'rp-ahead',   label: 'I am ahead of schedule' },
-              { id: 'rp-schedule',label: 'Update my weekly schedule' },
-              { id: 'rp-mocks',   label: 'Change number of mock exams' },
-              { id: 'rp-settings',label: 'Update settings' },
-              { id: 'rp-exam',    label: 'Exam date changed' },
-            ].map(opt => `
-              <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
-                <input type="checkbox" id="${opt.id}" />
-                ${opt.label}
-              </label>
-            `).join('')}
+    const scheduleOnly = context === 'schedule_only';
+    App._rpNewSchedule = null;
+
+    if (scheduleOnly) {
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-title">Update weekly schedule</div>
+          <div class="alert alert-info">
+            You are updating this plan from an overflow warning. Adjust your weekly schedule, then recalculate.
+          </div>
+
+          <div id="rp-schedule-panel" class="form-group mt-16">
+            <label class="mb-4">New weekly schedule</label>
+            <div id="rp-schedule-table"></div>
+          </div>
+
+          <div class="btn-group mt-16">
+            <button class="btn btn-primary" id="rp-generate">Recalculate Plan</button>
+            <button class="btn btn-outline" id="rp-cancel">Cancel</button>
           </div>
         </div>
+      `;
 
-        <div id="rp-skipped-panel" class="form-group" style="display:none;">
-          <label>Number of sessions skipped</label>
-          <input type="number" id="rp-skip-count" value="0" min="0" />
-        </div>
-        <div id="rp-ahead-panel" class="form-group" style="display:none;">
-          <label>Ahead by how many sessions?</label>
-          <input type="number" id="rp-ahead-count" value="0" min="0" />
-        </div>
-        <div id="rp-mocks-panel" class="form-group" style="display:none;">
-          <label>New number of mock exams</label>
-          <input type="number" id="rp-mocks-count" value="${plan.settings.numberOfMocks}" min="0" max="10" />
-        </div>
-        <div id="rp-exam-panel" class="form-group" style="display:none;">
-          <label>New exam date</label>
-          <input type="date" id="rp-exam-date" value="${plan.examDate}" />
-        </div>
-        <div id="rp-schedule-panel" style="display:none;">
-          <label class="mb-4">New weekly schedule</label>
-          <div id="rp-schedule-table"></div>
-        </div>
+      const newSched = JSON.parse(JSON.stringify(plan.weeklySchedule));
+      UI.renderScheduleTable('rp-schedule-table', newSched, sched => { App._rpNewSchedule = sched; });
+      App._rpNewSchedule = newSched;
+    } else {
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-title">Update existing plan</div>
+          <div class="alert alert-info">
+            Current plan: <strong>${plan.name}</strong> — Exam: ${plan.examDate}
+          </div>
 
-        <div class="btn-group mt-16">
-          <button class="btn btn-primary" id="rp-generate">Recalculate Plan</button>
-          <button class="btn btn-outline" id="rp-cancel">Cancel</button>
-        </div>
-      </div>
-    `;
+          <div class="form-group mt-16">
+            <label>What needs updating?</label>
+            <div id="replan-checkboxes">
+              ${[
+                { id: 'rp-skipped', label: 'I skipped some sessions' },
+                { id: 'rp-ahead',   label: 'I am ahead of schedule' },
+                { id: 'rp-schedule',label: 'Update my weekly schedule' },
+                { id: 'rp-mocks',   label: 'Change number of mock exams' },
+                { id: 'rp-settings',label: 'Update settings' },
+                { id: 'rp-exam',    label: 'Exam date changed' },
+              ].map(opt => `
+                <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text);">
+                  <input type="checkbox" id="${opt.id}" />
+                  ${opt.label}
+                </label>
+              `).join('')}
+            </div>
+          </div>
 
-    // Show/hide panels
-    ['skipped','ahead','schedule','mocks','settings','exam'].forEach(key => {
-      document.getElementById(`rp-${key}`)?.addEventListener('change', e => {
-        const panel = document.getElementById(`rp-${key}-panel`);
-        if (panel) panel.style.display = e.target.checked ? '' : 'none';
-        if (key === 'schedule' && e.target.checked) {
-          const newSched = JSON.parse(JSON.stringify(plan.weeklySchedule));
-          UI.renderScheduleTable('rp-schedule-table', newSched, () => {});
-          App._rpNewSchedule = newSched;
-        }
+          <div id="rp-skipped-panel" class="form-group" style="display:none;">
+            <label>Number of sessions skipped</label>
+            <input type="number" id="rp-skip-count" value="0" min="0" />
+          </div>
+          <div id="rp-ahead-panel" class="form-group" style="display:none;">
+            <label>Ahead by how many sessions?</label>
+            <input type="number" id="rp-ahead-count" value="0" min="0" />
+          </div>
+          <div id="rp-mocks-panel" class="form-group" style="display:none;">
+            <label>New number of mock exams</label>
+            <input type="number" id="rp-mocks-count" value="${plan.settings.numberOfMocks}" min="0" max="10" />
+          </div>
+          <div id="rp-exam-panel" class="form-group" style="display:none;">
+            <label>New exam date</label>
+            <input type="date" id="rp-exam-date" value="${plan.examDate}" />
+          </div>
+          <div id="rp-schedule-panel" style="display:none;">
+            <label class="mb-4">New weekly schedule</label>
+            <div id="rp-schedule-table"></div>
+          </div>
+
+          <div class="btn-group mt-16">
+            <button class="btn btn-primary" id="rp-generate">Recalculate Plan</button>
+            <button class="btn btn-outline" id="rp-cancel">Cancel</button>
+          </div>
+        </div>
+      `;
+
+      // Show/hide panels
+      ['skipped','ahead','schedule','mocks','settings','exam'].forEach(key => {
+        document.getElementById(`rp-${key}`)?.addEventListener('change', e => {
+          const panel = document.getElementById(`rp-${key}-panel`);
+          if (panel) panel.style.display = e.target.checked ? '' : 'none';
+          if (key === 'schedule' && e.target.checked) {
+            const newSched = JSON.parse(JSON.stringify(plan.weeklySchedule));
+            UI.renderScheduleTable('rp-schedule-table', newSched, sched => { App._rpNewSchedule = sched; });
+            App._rpNewSchedule = newSched;
+          }
+        });
       });
-    });
+    }
 
     document.getElementById('rp-generate').addEventListener('click', () => {
+      const skippedSessions = scheduleOnly
+        ? 0
+        : (document.getElementById('rp-skipped')?.checked
+          ? Math.max(0, parseInt(document.getElementById('rp-skip-count').value) || 0)
+          : 0);
+      const aheadSessions = scheduleOnly
+        ? 0
+        : (document.getElementById('rp-ahead')?.checked
+          ? Math.max(0, parseInt(document.getElementById('rp-ahead-count').value) || 0)
+          : 0);
+
       const updates = {
         currentDate:    new Date().toISOString().split('T')[0],
-        examDate:       document.getElementById('rp-exam')?.checked
-          ? document.getElementById('rp-exam-date').value
-          : plan.examDate,
+        examDate:       scheduleOnly
+          ? plan.examDate
+          : (document.getElementById('rp-exam')?.checked
+            ? document.getElementById('rp-exam-date').value
+            : plan.examDate),
         weeklySchedule: App._rpNewSchedule || plan.weeklySchedule,
-        numberOfMocks:  document.getElementById('rp-mocks')?.checked
-          ? parseInt(document.getElementById('rp-mocks-count').value)
-          : plan.settings.numberOfMocks,
+        skippedSessions,
+        aheadSessions,
+        useLatestSettings: scheduleOnly
+          ? false
+          : !!document.getElementById('rp-settings')?.checked,
+        numberOfMocks:  scheduleOnly
+          ? plan.settings.numberOfMocks
+          : (document.getElementById('rp-mocks')?.checked
+            ? parseInt(document.getElementById('rp-mocks-count').value)
+            : plan.settings.numberOfMocks),
       };
       onReplan(updates);
     });
