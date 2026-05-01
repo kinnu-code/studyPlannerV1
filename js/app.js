@@ -24,10 +24,155 @@ const App = {
     };
   },
 
+  _cloneSchedule(schedule) {
+    return JSON.parse(JSON.stringify(schedule || App._defaultWeeklySchedule()));
+  },
+
+  _syncDefaultSchedule(schedule, { persist = true, updateSetup = true } = {}) {
+    const normalized = App._cloneSchedule(schedule);
+    App.settingsSchedule = App._cloneSchedule(normalized);
+    if (updateSetup) {
+      App.setupSchedule = App._cloneSchedule(normalized);
+    }
+    if (persist) {
+      Storage.saveDefaultSchedule(App.settingsSchedule);
+    }
+  },
+
+  _buildAdjustedPlan(sourcePlan, options = {}) {
+    let next = sourcePlan;
+    if (typeof options.targetState === 'string') {
+      next = previewOverflowOption(next, { type: 'lower_target', value: options.targetState });
+    }
+    if (Number.isFinite(parseInt(options.mcqForHealthy))) {
+      next = previewOverflowOption(next, { type: 'lower_mcq_healthy', value: parseInt(options.mcqForHealthy) });
+    }
+    if (Number.isFinite(parseInt(options.mcqForMastery))) {
+      next = previewOverflowOption(next, { type: 'lower_mcq_mastery', value: parseInt(options.mcqForMastery) });
+    }
+    if (Number.isFinite(parseInt(options.srReviewsForMastery))) {
+      next = previewOverflowOption(next, { type: 'lower_sr_reviews', value: parseInt(options.srReviewsForMastery) });
+    }
+    if (Number.isFinite(parseInt(options.numberOfMocks))) {
+      next = previewOverflowOption(next, { type: 'fewer_mocks', value: parseInt(options.numberOfMocks) });
+    }
+    return next;
+  },
+
+  _hasDay0OrderingAnomaly(plan) {
+    const topics = plan?.topics || [];
+    for (let i = 1; i < topics.length; i++) {
+      const prev = topics[i - 1];
+      const curr = topics[i];
+      if (prev?.day0 && curr?.day0 && curr.day0 < prev.day0) {
+        return true;
+      }
+    }
+    return false;
+  },
+
+  _rebuildPlanWithLatestLogic(plan) {
+    return generatePlan({
+      name: plan.name,
+      topics: (plan.topics || []).map(t => ({
+        id: t.id,
+        name: t.name,
+        size: t.size,
+        startingState: t.startingState || 'not_started',
+      })),
+      examDate: plan.examDate,
+      startDate: plan.startDate,
+      weeklySchedule: plan.weeklySchedule,
+      settings: plan.settings,
+    });
+  },
+
+  _normalizeLoadedPlan(plan) {
+    if (!plan) return plan;
+    if (!App._hasDay0OrderingAnomaly(plan)) return plan;
+
+    const repaired = App._rebuildPlanWithLatestLogic(plan);
+    repaired._autoRepaired = true;
+    return repaired;
+  },
+
+  clearCachedPlans() {
+    UI.showModal(
+      'Clear Cached Plans',
+      '<p>This will remove all cached plans from app memory and browser local storage.</p><p class="text-sm text-muted mt-8">Downloaded files on your local drive are not deleted.</p>',
+      () => {
+        Storage.clearCachedPlans();
+        App.currentPlan = null;
+        App.setupTopics = [];
+        App.setupInProgress = false;
+        App.setupStep = 1;
+        App.replanContext = 'full';
+        App.overflowBasePlan = null;
+        App.updateOptionsBasePlan = null;
+        App.renderHome();
+        UI.showAlert('home-content', 'Cached plans cleared. Downloaded files on your drive were not changed.', 'success');
+      },
+      'Clear Cache'
+    );
+  },
+
+  editTopicsFromUpdate() {
+    if (!App.currentPlan) return;
+
+    const draftTopics = App.currentPlan.topics.map(t => ({
+      id: t.id,
+      name: t.name,
+      size: t.size,
+      startingState: t.startingState || 'not_started',
+      justification: t.justification || '',
+    }));
+
+    const modal = UI.showModal(
+      'Update Topics',
+      '<div class="text-sm text-muted mb-8">Edit, reorder, resize, or adjust starting state. Saving recalculates the plan.</div><div id="update-topic-editor"></div>',
+      () => {
+        if (!draftTopics.length) {
+          UI.showAlert('update-alert', 'Please keep at least one topic.', 'warn');
+          return;
+        }
+
+        UI.showLoading('Updating topics and recalculating plan…');
+        setTimeout(() => {
+          try {
+            const updated = replan(App.currentPlan, {
+              currentDate: new Date().toISOString().split('T')[0],
+              examDate: App.currentPlan.examDate,
+              weeklySchedule: App.currentPlan.weeklySchedule,
+              skippedSessions: 0,
+              aheadSessions: 0,
+              topics: draftTopics,
+            });
+            App.currentPlan = updated;
+            Storage.savePlan(updated);
+            App._updateApplying = true;
+            App.renderUpdateEntry();
+            UI.showAlert('update-alert', 'Topics updated successfully.', 'success');
+          } catch (e) {
+            UI.showAlert('update-alert', `Failed to update topics: ${e.message}`, 'danger');
+          } finally {
+            UI.hideLoading();
+          }
+        }, 60);
+      },
+      'Save Topics'
+    );
+
+    const editor = modal.querySelector('#update-topic-editor');
+    UI.renderTopicList(draftTopics, editor, updated => {
+      draftTopics.splice(0, draftTopics.length, ...updated);
+    });
+  },
+
   // ── Initialisation ────────────────────────────────────────────────────────
 
   init() {
     UI.updateApiStatus();
+    App.settingsSchedule = Storage.loadDefaultSchedule() || App._defaultWeeklySchedule();
 
     // Nav items
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -50,7 +195,13 @@ const App = {
 
     // Load saved plan
     const saved = Storage.loadPlan();
-    if (saved) App.currentPlan = saved;
+    if (saved) {
+      const normalized = App._normalizeLoadedPlan(saved);
+      App.currentPlan = normalized;
+      if (normalized !== saved) {
+        Storage.savePlan(normalized);
+      }
+    }
 
     App.navigate('view-home');
     App.setupListeners();
@@ -153,11 +304,11 @@ const App = {
     App.setupStep       = 1;
     App.setupTopics     = [];
     App.setupInProgress = false;  // Fix 1: fresh start clears flag
-    App.setupSchedule   = Storage.loadDefaultSchedule() || App._defaultWeeklySchedule();
+    App._syncDefaultSchedule(Storage.loadDefaultSchedule() || App._defaultWeeklySchedule(), { persist: false, updateSetup: true });
     UI.showStep(1);
     UI.clearAlert('setup-alert');
     UI.renderScheduleTable('schedule-table-container', App.setupSchedule, sched => {
-      App.setupSchedule = sched;
+      App._syncDefaultSchedule(sched, { persist: true, updateSetup: true });
     });
     App._updateResumeButton();
   },
@@ -214,6 +365,8 @@ const App = {
       App.replanContext = 'full';
       App.navigate('view-update');
     });
+    document.getElementById('btn-clear-cached-plan')?.addEventListener('click', () => App.clearCachedPlans());
+    document.getElementById('btn-clear-cached-plan-empty')?.addEventListener('click', () => App.clearCachedPlans());
     document.getElementById('btn-new-plan')?.addEventListener('click', () => {
       App.setupInProgress = false;  // explicit new plan from home resets
       App.navigate('view-setup');
@@ -234,7 +387,16 @@ const App = {
 
     // ── Plan tabs ─────────────────────────────────────────────────────────
 
-    UI.initTabs('plan-tabs-container');
+    UI.initTabs('plan-tabs-container', panelId => {
+      if (panelId === 'tab-timeline' && App.currentPlan) {
+        requestAnimationFrame(() => {
+          const chartContainer = document.getElementById('timeline-chart');
+          if (chartContainer) Chart.renderTimeline(App.currentPlan, chartContainer);
+          const summaryChart = document.getElementById('summary-chart');
+          if (summaryChart) Chart.renderSummary(App.currentPlan, summaryChart);
+        });
+      }
+    });
 
     // ── Settings ──────────────────────────────────────────────────────────
 
@@ -279,14 +441,14 @@ const App = {
         topics = await API.topicsFromGranularList(lines, tips, msg => UI.showLoading(msg));
       }
 
-      App.setupTopics     = topics;
+      App.setupTopics     = topics.map(t => ({ ...t, startingState: t.startingState || 'not_started' }));
       App.setupStep       = 2;
       App.setupInProgress = true;  // Fix 1: AI has done work — guard against loss
       App._updateResumeButton();
 
       UI.showStep(2);
       const rcEl = document.getElementById('review-count');
-      if (rcEl) rcEl.textContent = `${topics.length} topics`;
+      if (rcEl) rcEl.textContent = `${App.setupTopics.length} topics`;
       UI.renderTopicList(
         App.setupTopics,
         document.getElementById('topic-review-list'),
@@ -378,6 +540,16 @@ const App = {
     App._updateResumeButton();
     UI.setTopbarTitle(plan.name, 'Active Plan', 'ok');
 
+    if (plan._autoRepaired) {
+      UI.showAlert(
+        'update-alert',
+        'This plan was automatically refreshed with the latest planning logic to fix legacy topic-order timing anomalies.',
+        'info'
+      );
+      delete plan._autoRepaired;
+      Storage.savePlan(plan);
+    }
+
     UI.renderPlanStats(plan, document.getElementById('plan-stats'));
     UI.renderOverflowBanner(plan.overflow, document.getElementById('plan-overflow-banner'));
 
@@ -402,18 +574,13 @@ const App = {
           return;
         }
 
-        if (action.type !== 'recalc_option' && action.type !== 'reset_option') return;
-        const sourcePlan = action.type === 'reset_option'
-          ? (App.overflowBasePlan || plan)
-          : plan;
-        const preview = previewOverflowOption(sourcePlan, {
-          type: action.optionType,
-          value: action.value,
-        });
-        App._overflowApplying = true;
-        App.currentPlan = preview;
-        Storage.savePlan(preview);
-        App.showPlan(preview);
+        if (action.type === 'recalculate_all' || action.type === 'view_updated_plan') {
+          const preview = App._buildAdjustedPlan(plan, action.options || {});
+          App._overflowApplying = true;
+          App.currentPlan = preview;
+          Storage.savePlan(preview);
+          App.showPlan(preview);
+        }
       });
     } else if (overflowOpts) {
       overflowOpts.style.display = 'none';
@@ -465,7 +632,8 @@ const App = {
       `;
       document.getElementById('btn-upload-plan').addEventListener('click', async () => {
         try {
-          const plan = await Storage.uploadJSON('.json');
+          const uploaded = await Storage.uploadJSON('.json');
+          const plan = App._normalizeLoadedPlan(uploaded);
           App.currentPlan = plan;
           Storage.savePlan(plan);
           App.renderUpdateEntry();
@@ -504,13 +672,13 @@ const App = {
           UI.showAlert('update-alert', `Replan failed: ${e.message}`, 'danger');
         }
       }, 60);
-    });
+    }, () => App.editTopicsFromUpdate());
 
     const shortcutsWrap = document.createElement('div');
     shortcutsWrap.className = 'card';
     shortcutsWrap.innerHTML = `
       <div class="card-title">Quick Plan-Fit Adjustments</div>
-      <div class="input-hint mb-16">Same flexibility as shortfall controls. Each action recalculates immediately.</div>
+      <div class="input-hint mb-16">Same flexibility as shortfall controls. Adjust fields, then recalculate once.</div>
       <div id="update-overflow-controls"></div>
       <div class="btn-group mt-16">
         <button class="btn btn-outline" id="btn-update-open-settings">Update Settings</button>
@@ -545,19 +713,19 @@ const App = {
           return;
         }
 
-        if (action.type !== 'recalc_option' && action.type !== 'reset_option') return;
-        const sourcePlan = action.type === 'reset_option'
-          ? (App.updateOptionsBasePlan || App.currentPlan)
-          : App.currentPlan;
-        const preview = previewOverflowOption(sourcePlan, {
-          type: action.optionType,
-          value: action.value,
-        });
+        if (action.type !== 'recalculate_all' && action.type !== 'view_updated_plan') return;
+        const preview = App._buildAdjustedPlan(App.currentPlan, action.options || {});
         App.currentPlan = preview;
         Storage.savePlan(preview);
+
+        if (action.type === 'view_updated_plan') {
+          App.showPlan(preview);
+          return;
+        }
+
         App._updateApplying = true;
         App.renderUpdateEntry();
-        UI.showAlert('update-alert', 'Plan recalculated with the selected adjustment.', 'success');
+        UI.showAlert('update-alert', 'Plan recalculated with the selected adjustments.', 'success');
       }
     );
   },
@@ -567,9 +735,9 @@ const App = {
   renderSettings() {
     const settings = Storage.loadSettings() || DEFAULT_SETTINGS;
     UI.renderSettings(settings, document.getElementById('settings-form'));
-    App.settingsSchedule = Storage.loadDefaultSchedule() || App._defaultWeeklySchedule();
+    App._syncDefaultSchedule(Storage.loadDefaultSchedule() || App.settingsSchedule || App._defaultWeeklySchedule(), { persist: false, updateSetup: true });
     UI.renderScheduleTable('settings-schedule-table', App.settingsSchedule, sched => {
-      App.settingsSchedule = sched;
+      App._syncDefaultSchedule(sched, { persist: true, updateSetup: true });
     });
     UI.renderApiPanel(document.getElementById('api-panel'));
   },
@@ -577,17 +745,16 @@ const App = {
   saveSettings() {
     const s = UI.collectSettings(document.getElementById('settings-form'));
     Storage.saveSettings(s);
-    Storage.saveDefaultSchedule(App.settingsSchedule || App._defaultWeeklySchedule());
+    App._syncDefaultSchedule(App.settingsSchedule || App._defaultWeeklySchedule(), { persist: true, updateSetup: true });
     UI.showAlert('settings-alert', 'Settings saved.', 'success');
   },
 
   resetSettings() {
     Storage.saveSettings(DEFAULT_SETTINGS);
-    Storage.saveDefaultSchedule(App._defaultWeeklySchedule());
+    App._syncDefaultSchedule(App._defaultWeeklySchedule(), { persist: true, updateSetup: true });
     UI.renderSettings(DEFAULT_SETTINGS, document.getElementById('settings-form'));
-    App.settingsSchedule = Storage.loadDefaultSchedule() || App._defaultWeeklySchedule();
     UI.renderScheduleTable('settings-schedule-table', App.settingsSchedule, sched => {
-      App.settingsSchedule = sched;
+      App._syncDefaultSchedule(sched, { persist: true, updateSetup: true });
     });
     UI.showAlert('settings-alert', 'Settings reset to defaults.', 'info');
   },

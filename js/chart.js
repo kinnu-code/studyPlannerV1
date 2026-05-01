@@ -42,14 +42,17 @@ const Chart = {
 
     const totalDays  = stateTimeline[0].timeline.length;
     const topicCount = stateTimeline.length;
+    const longestTopicName = stateTimeline.reduce((max, t) => Math.max(max, (t.topicName || '').length), 0);
 
     const ROW_H      = 28;
-    const LABEL_W    = 200;
-    const DAY_W      = Math.max(2, Math.min(12, Math.floor((container.clientWidth - LABEL_W - 20) / totalDays)));
+    const LABEL_W    = Math.min(420, Math.max(220, 170 + longestTopicName * 4));
+    const containerW = Chart._resolveContainerWidth(container);
+    const DAY_W      = Math.max(2, Math.min(12, Math.floor((containerW - LABEL_W - 20) / totalDays)));
     const CHART_W    = DAY_W * totalDays;
     const HEADER_H   = 40;
     const SVG_W      = LABEL_W + CHART_W + 20;
     const SVG_H      = HEADER_H + topicCount * ROW_H + 30;
+    const labelMaxChars = Math.max(16, Math.floor((LABEL_W - 16) / 6.3));
 
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('width',  SVG_W);
@@ -98,9 +101,11 @@ const Chart = {
       label.setAttribute('font-size', '11');
       label.setAttribute('fill', '#1A1A2A');
       label.setAttribute('font-family', 'Inter, system-ui, sans-serif');
-      label.textContent = topic.topicName.length > 28
-        ? topic.topicName.slice(0, 26) + '…'
-        : topic.topicName;
+      label.textContent = Chart._middleEllipsis(topic.topicName || '', labelMaxChars);
+      if ((topic.topicName || '').length > label.textContent.length) {
+        label.style.cursor = 'help';
+      }
+      Chart._addTitle(label, topic.topicName || '');
       svg.appendChild(label);
 
       // State colour segments — merge consecutive same-state days
@@ -249,6 +254,27 @@ const Chart = {
     const t = document.createElementNS('http://www.w3.org/2000/svg', 'title');
     t.textContent = text;
     el.appendChild(t);
+  },
+
+  _middleEllipsis(text, maxChars = 36) {
+    const raw = String(text || '');
+    if (raw.length <= maxChars) return raw;
+
+    const keepStart = Math.max(5, Math.floor((maxChars - 3) * 0.58));
+    const keepEnd = Math.max(4, maxChars - 3 - keepStart);
+
+    const start = raw.slice(0, Math.max(1, keepStart));
+    const end = raw.slice(-Math.max(1, keepEnd));
+    return `${start}...${end}`;
+  },
+
+  _resolveContainerWidth(container) {
+    const c1 = container?.clientWidth || 0;
+    const c2 = Math.floor(container?.getBoundingClientRect?.().width || 0);
+    const p1 = container?.parentElement?.clientWidth || 0;
+    const p2 = Math.floor(container?.parentElement?.getBoundingClientRect?.().width || 0);
+    const fallback = Math.floor(window.innerWidth * 0.78);
+    return Math.max(c1, c2, p1, p2, fallback, 640);
   },
 
   _buildLegend() {

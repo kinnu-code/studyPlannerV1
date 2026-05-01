@@ -4,6 +4,23 @@
 
 const UI = {
 
+  sizeLabel(size) {
+    if (size === 'S') return 'Easy';
+    if (size === 'L') return 'Hard';
+    return 'Medium';
+  },
+
+  prettyState(state) {
+    const map = {
+      not_started: 'Not Started',
+      ready: 'Ready for Practice',
+      weak: 'Weak',
+      healthy: 'Healthy',
+      mastered: 'Mastered',
+    };
+    return map[state] || state;
+  },
+
   // ── View routing ──────────────────────────────────────────────────────────
 
   showView(id) {
@@ -78,7 +95,21 @@ const UI = {
   // ── Topic list (review screen) ────────────────────────────────────────────
 
   renderTopicList(topics, container, onChange) {
+    const render = () => {
     container.innerHTML = '';
+
+    const header = document.createElement('div');
+    header.className = 'topic-list-header';
+    header.innerHTML = `
+      <span></span>
+      <span>Topic</span>
+      <span>Difficulty</span>
+      <span>Starting state</span>
+      <span></span>
+      <span></span>
+    `;
+    container.appendChild(header);
+
     topics.forEach((topic, idx) => {
       const row = document.createElement('div');
       row.className = 'topic-item';
@@ -102,7 +133,7 @@ const UI = {
       ['S', 'M', 'L'].forEach(sz => {
         const opt = document.createElement('option');
         opt.value       = sz;
-        opt.textContent = sz === 'S' ? 'S – Small' : sz === 'M' ? 'M – Medium' : 'L – Large';
+        opt.textContent = `${UI.sizeLabel(sz)} (${sz})`;
         opt.selected    = topic.size === sz;
         sizeSelect.appendChild(opt);
       });
@@ -111,9 +142,54 @@ const UI = {
         onChange?.(topics);
       });
 
-      const justif = document.createElement('span');
-      justif.className = 'text-xs text-muted';
-      justif.textContent = topic.justification || '';
+      const stateSelect = document.createElement('select');
+      stateSelect.className = 'topic-state-select';
+      const stateOptions = [
+        ['not_started', 'Not Started'],
+        ['ready', 'Ready for Practice'],
+        ['weak', 'Weak'],
+        ['healthy', 'Healthy'],
+        ['mastered', 'Mastered'],
+      ];
+      stateOptions.forEach(([value, label]) => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        opt.selected = (topic.startingState || 'not_started') === value;
+        stateSelect.appendChild(opt);
+      });
+      stateSelect.addEventListener('change', () => {
+        topic.startingState = stateSelect.value;
+        onChange?.(topics);
+      });
+
+      const moveUpBtn = document.createElement('button');
+      moveUpBtn.className = 'btn btn-ghost btn-sm topic-move';
+      moveUpBtn.textContent = '↑';
+      moveUpBtn.title = 'Move up';
+      moveUpBtn.disabled = idx === 0;
+      moveUpBtn.addEventListener('click', () => {
+        if (idx === 0) return;
+        const tmp = topics[idx - 1];
+        topics[idx - 1] = topics[idx];
+        topics[idx] = tmp;
+        render();
+        onChange?.(topics);
+      });
+
+      const moveDownBtn = document.createElement('button');
+      moveDownBtn.className = 'btn btn-ghost btn-sm topic-move';
+      moveDownBtn.textContent = '↓';
+      moveDownBtn.title = 'Move down';
+      moveDownBtn.disabled = idx === topics.length - 1;
+      moveDownBtn.addEventListener('click', () => {
+        if (idx === topics.length - 1) return;
+        const tmp = topics[idx + 1];
+        topics[idx + 1] = topics[idx];
+        topics[idx] = tmp;
+        render();
+        onChange?.(topics);
+      });
 
       const removeBtn = document.createElement('button');
       removeBtn.className   = 'topic-remove';
@@ -121,11 +197,15 @@ const UI = {
       removeBtn.title       = 'Remove topic';
       removeBtn.addEventListener('click', () => {
         topics.splice(idx, 1);
-        UI.renderTopicList(topics, container, onChange);
+        render();
         onChange?.(topics);
       });
 
-      row.append(handle, nameInput, sizeSelect, removeBtn);
+      const moveWrap = document.createElement('div');
+      moveWrap.className = 'topic-move-wrap';
+      moveWrap.append(moveUpBtn, moveDownBtn);
+
+      row.append(handle, nameInput, sizeSelect, stateSelect, moveWrap, removeBtn);
       container.appendChild(row);
     });
 
@@ -134,12 +214,15 @@ const UI = {
     addBtn.className   = 'btn btn-ghost btn-sm mt-8';
     addBtn.textContent = '+ Add topic';
     addBtn.addEventListener('click', () => {
-      topics.push({ id: `manual-${Date.now()}`, name: 'New Topic', size: 'M', justification: '' });
-      UI.renderTopicList(topics, container, onChange);
+      topics.push({ id: `manual-${Date.now()}`, name: 'New Topic', size: 'M', startingState: 'not_started', justification: '' });
+      render();
       onChange?.(topics);
       container.lastElementChild?.previousElementSibling?.querySelector('input')?.focus();
     });
     container.appendChild(addBtn);
+    };
+
+    render();
   },
 
   // ── Weekly schedule table ─────────────────────────────────────────────────
@@ -338,37 +421,51 @@ const UI = {
       return card;
     };
 
-    const attachControls = (card, inputEl, onRecalc, onReset) => {
-      const controls = document.createElement('div');
-      controls.className = 'option-controls';
+    container.innerHTML = '';
 
-      inputEl.classList.add('option-input');
-      controls.appendChild(inputEl);
+    const actionBar = document.createElement('div');
+    actionBar.className = 'btn-group mb-16';
+    actionBar.innerHTML = `
+      <button class="btn btn-primary btn-sm" id="overflow-main-recalc">Recalculate</button>
+      <button class="btn btn-outline btn-sm" id="overflow-main-view">View Updated Plan</button>
+      <button class="btn btn-outline btn-sm" id="overflow-main-reset">Reset</button>
+    `;
+    container.appendChild(actionBar);
 
-      const recalcBtn = document.createElement('button');
-      recalcBtn.className = 'btn btn-primary btn-sm';
-      recalcBtn.textContent = 'Recalculate';
-      recalcBtn.addEventListener('click', e => {
-        e.preventDefault();
-        e.stopPropagation();
-        onRecalc();
-      });
-      controls.appendChild(recalcBtn);
+    const hint = document.createElement('p');
+    hint.className = 'text-sm text-muted mb-16';
+    hint.textContent = 'Edit any fields below, then recalculate once.';
+    container.appendChild(hint);
 
-      const resetBtn = document.createElement('button');
-      resetBtn.className = 'btn btn-outline btn-sm';
-      resetBtn.textContent = 'Reset';
-      resetBtn.addEventListener('click', e => {
-        e.preventDefault();
-        e.stopPropagation();
-        onReset();
-      });
-      controls.appendChild(resetBtn);
+    const optionInputs = {};
 
-      card.appendChild(controls);
+    const collectOptions = () => {
+      let mcqHealthy = Math.max(1, parseInt(optionInputs.lower_mcq_healthy?.value) || effectivePlanHealthy);
+      let mcqMastery = Math.max(2, parseInt(optionInputs.lower_mcq_mastery?.value) || effectivePlanMastery);
+      if (mcqHealthy >= mcqMastery) {
+        mcqHealthy = mcqMastery - 1;
+      }
+      optionInputs.lower_mcq_healthy.value = String(mcqHealthy);
+      optionInputs.lower_mcq_mastery.value = String(mcqMastery);
+
+      return {
+        targetState: optionInputs.lower_target?.value || (plan.settings.targetState || 'mastered'),
+        mcqForHealthy: mcqHealthy,
+        mcqForMastery: mcqMastery,
+        srReviewsForMastery: Math.max(1, parseInt(optionInputs.lower_sr_reviews?.value) || plan.settings.srReviewsForMastery),
+        numberOfMocks: Math.max(0, parseInt(optionInputs.fewer_mocks?.value) || plan.settings.numberOfMocks),
+      };
     };
 
-    container.innerHTML = '<p class="text-sm text-muted mb-16">Choose adjustments, then click Recalculate. Use Reset to revert any option back to the original shortfall values.</p>';
+    document.getElementById('overflow-main-recalc').addEventListener('click', () => {
+      onSelect({ type: 'recalculate_all', options: collectOptions() });
+    });
+    document.getElementById('overflow-main-view').addEventListener('click', () => {
+      onSelect({ type: 'view_updated_plan', options: collectOptions() });
+    });
+    document.getElementById('overflow-main-reset').addEventListener('click', () => {
+      onSelect({ type: 'reset_all_overflow' });
+    });
 
     // Schedule adjustment option
     const scheduleCard = makeCard(
@@ -403,12 +500,12 @@ const UI = {
       if ((plan.settings.targetState || 'mastered') === v) opt.selected = true;
       targetSelect.appendChild(opt);
     });
-    attachControls(
-      targetCard,
-      targetSelect,
-      () => onSelect({ type: 'recalc_option', optionType: 'lower_target', value: targetSelect.value }),
-      () => onSelect({ type: 'reset_option', optionType: 'lower_target', value: baseSettings.targetState || 'mastered' })
-    );
+    const targetControls = document.createElement('div');
+    targetControls.className = 'option-controls';
+    targetSelect.classList.add('option-input');
+    optionInputs.lower_target = targetSelect;
+    targetControls.appendChild(targetSelect);
+    targetCard.appendChild(targetControls);
     container.appendChild(targetCard);
 
     const numericOptions = [
@@ -450,8 +547,6 @@ const UI = {
       },
     ];
 
-    const optionInputs = {};
-
     numericOptions.forEach(cfg => {
       const card = makeCard(cfg.title, cfg.desc);
       const input = document.createElement('input');
@@ -461,42 +556,11 @@ const UI = {
       input.value = String(cfg.current);
       input.id = `overflow-input-${cfg.optionType}`;
       optionInputs[cfg.optionType] = input;
-      attachControls(
-        card,
-        input,
-        () => {
-          let next = Math.max(cfg.min, Math.min(cfg.max, parseInt(input.value) || cfg.current));
-
-          if (cfg.optionType === 'lower_mcq_healthy') {
-            const masteryInput = optionInputs['lower_mcq_mastery'];
-            const mastery = Math.max(2, parseInt(masteryInput?.value) || effectivePlanMastery);
-            next = Math.min(next, mastery - 1);
-          }
-          if (cfg.optionType === 'lower_mcq_mastery') {
-            const healthyInput = optionInputs['lower_mcq_healthy'];
-            const healthy = Math.max(1, parseInt(healthyInput?.value) || effectivePlanHealthy);
-            next = Math.max(next, healthy + 1);
-          }
-
-          input.value = String(next);
-          onSelect({ type: 'recalc_option', optionType: cfg.optionType, value: next });
-        },
-        () => {
-          let resetValue = cfg.base;
-          if (cfg.optionType === 'lower_mcq_healthy') {
-            const masteryInput = optionInputs['lower_mcq_mastery'];
-            const mastery = Math.max(2, parseInt(masteryInput?.value) || effectivePlanMastery);
-            resetValue = Math.min(resetValue, mastery - 1);
-          }
-          if (cfg.optionType === 'lower_mcq_mastery') {
-            const healthyInput = optionInputs['lower_mcq_healthy'];
-            const healthy = Math.max(1, parseInt(healthyInput?.value) || effectivePlanHealthy);
-            resetValue = Math.max(resetValue, healthy + 1);
-          }
-          input.value = String(resetValue);
-          onSelect({ type: 'reset_option', optionType: cfg.optionType, value: resetValue });
-        }
-      );
+      const controls = document.createElement('div');
+      controls.className = 'option-controls';
+      input.classList.add('option-input');
+      controls.appendChild(input);
+      card.appendChild(controls);
       container.appendChild(card);
     });
   },
@@ -527,7 +591,7 @@ const UI = {
           ${topics.map(t => `
             <tr>
               <td>${t.name}</td>
-              <td><span class="chip chip-${t.size}">${t.size}</span></td>
+              <td><span class="chip chip-${t.size}">${UI.sizeLabel(t.size)}</span></td>
               <td><span class="state-badge ${t.state}">${stateLabel[t.state] || t.state}</span></td>
               <td class="text-sm text-muted">${t.day0 || '—'}</td>
               <td class="text-sm">${t.mcqCount}</td>
@@ -602,7 +666,7 @@ const UI = {
           <div class="card-title">Activity time estimates (minutes)</div>
           <table class="time-table">
             <thead>
-              <tr><th>Activity</th><th>S</th><th>M</th><th>L</th></tr>
+              <tr><th>Activity</th><th>Easy (S)</th><th>Medium (M)</th><th>Hard (L)</th></tr>
             </thead>
             <tbody>
               ${Object.entries(s.activityTimes).map(([act, times]) => `
@@ -737,7 +801,7 @@ const UI = {
 
   // ── Replan form ───────────────────────────────────────────────────────────
 
-  renderReplanForm(plan, container, context = 'full', onReplan) {
+  renderReplanForm(plan, container, context = 'full', onReplan, onUpdateTopics) {
     if (typeof context === 'function') {
       onReplan = context;
       context = 'full';
@@ -762,6 +826,7 @@ const UI = {
           <div class="btn-group mt-16">
             <button class="btn btn-primary" id="rp-generate">Recalculate Plan</button>
             <button class="btn btn-outline" id="rp-cancel">Cancel</button>
+            <button class="btn btn-outline" id="rp-update-topics">Update Topics</button>
           </div>
         </div>
       `;
@@ -809,6 +874,7 @@ const UI = {
           <div class="btn-group mt-16">
             <button class="btn btn-primary" id="rp-generate">Recalculate Plan</button>
             <button class="btn btn-outline" id="rp-cancel">Cancel</button>
+            <button class="btn btn-outline" id="rp-update-topics">Update Topics</button>
             <button class="btn btn-outline" id="rp-open-settings">Update Settings</button>
           </div>
         </div>
@@ -825,7 +891,12 @@ const UI = {
       document.getElementById('rp-open-settings')?.addEventListener('click', () => {
         App.navigate('view-settings');
       });
+
     }
+
+    document.getElementById('rp-update-topics')?.addEventListener('click', () => {
+      onUpdateTopics?.();
+    });
 
     document.getElementById('rp-generate').addEventListener('click', () => {
       const skippedSessions = scheduleOnly
@@ -911,7 +982,7 @@ const UI = {
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
 
-  initTabs(containerId) {
+  initTabs(containerId, onTabChange) {
     const container = document.getElementById(containerId);
     if (!container) return;
     container.querySelectorAll('.tab').forEach(tab => {
@@ -921,6 +992,7 @@ const UI = {
         tab.classList.add('active');
         const panel = document.getElementById(tab.dataset.panel);
         if (panel) panel.classList.add('active');
+        onTabChange?.(tab.dataset.panel || '', tab);
       });
     });
   },

@@ -30,10 +30,15 @@ const DEFAULT_SETTINGS = {
   mockExamMins: 120,  // duration of a mock exam session slot
 };
 
+const VALID_STATES = new Set(['not_started', 'ready', 'weak', 'healthy', 'mastered']);
+
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
 function dateStr(d) {
-  return d.toISOString().split('T')[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function addDays(d, n) {
@@ -67,6 +72,11 @@ function normalizePlannerSettings(settings) {
   }
 
   return out;
+}
+
+function normalizeStartingState(state) {
+  const s = String(state || 'not_started').trim().toLowerCase();
+  return VALID_STATES.has(s) ? s : 'not_started';
 }
 
 // ── Session grid builder ──────────────────────────────────────────────────────
@@ -149,8 +159,19 @@ function actDuration(type, size, settings) {
   }
 }
 
-function initTopicState(topic) {
+function initTopicState(topic, startDate, settings) {
   const useCarry = topic.__carryForward === true;
+  const normalizedStartState = normalizeStartingState(topic.startingState);
+  const effectiveStartingState = useCarry ? 'not_started' : normalizedStartState;
+
+  const seededMcq = effectiveStartingState === 'mastered'
+    ? settings.mcqForMastery
+    : (effectiveStartingState === 'healthy'
+      ? settings.mcqForHealthy
+      : (effectiveStartingState === 'weak' ? 1 : 0));
+  const seededSr = effectiveStartingState === 'mastered' ? settings.srReviewsForMastery : 0;
+  const seededFirstRead = effectiveStartingState !== 'not_started';
+
   const carriedMcq = useCarry ? Math.max(0, parseInt(topic.mcqCount) || 0) : 0;
   const carriedSr  = useCarry ? Math.max(0, parseInt(topic.srReviewCount) || 0) : 0;
   const carriedFirstRead = useCarry
@@ -158,22 +179,43 @@ function initTopicState(topic) {
     : false;
   const { __carryForward, ...cleanTopic } = topic;
 
+  const startDateStr = dateStr(parseDate(startDate));
+  const readyDate = useCarry
+    ? null
+    : (effectiveStartingState === 'ready' || effectiveStartingState === 'weak' || effectiveStartingState === 'healthy' || effectiveStartingState === 'mastered'
+      ? startDateStr
+      : null);
+  const weakDate = useCarry
+    ? null
+    : (effectiveStartingState === 'weak' || effectiveStartingState === 'healthy' || effectiveStartingState === 'mastered'
+      ? startDateStr
+      : null);
+  const healthyDate = useCarry
+    ? null
+    : (effectiveStartingState === 'healthy' || effectiveStartingState === 'mastered'
+      ? startDateStr
+      : null);
+  const masteredDate = useCarry
+    ? null
+    : (effectiveStartingState === 'mastered' ? startDateStr : null);
+
   return {
     ...cleanTopic,
-    state:            'not_started',
+    startingState:    normalizedStartState,
+    state:            useCarry ? 'not_started' : effectiveStartingState,
     dueReview:        false,
-    day0:             useCarry ? (topic.day0 || null) : null,
-    readyDate:        null,
-    weakDate:         null,
-    healthyDate:      null,
-    masteredDate:     null,
-    firstReadDone:    carriedFirstRead,
-    firstReadP1Date:  useCarry ? (topic.firstReadP1Date || topic.day0 || null) : null,
-    firstReadComplete:carriedFirstRead,
-    firstReadCompleteDate: useCarry ? (topic.firstReadCompleteDate || topic.day0 || null) : null,
+    day0:             useCarry ? (topic.day0 || null) : (seededFirstRead ? startDateStr : null),
+    readyDate,
+    weakDate,
+    healthyDate,
+    masteredDate,
+    firstReadDone:    useCarry ? carriedFirstRead : seededFirstRead,
+    firstReadP1Date:  useCarry ? (topic.firstReadP1Date || topic.day0 || null) : (seededFirstRead ? startDateStr : null),
+    firstReadComplete:useCarry ? carriedFirstRead : seededFirstRead,
+    firstReadCompleteDate: useCarry ? (topic.firstReadCompleteDate || topic.day0 || null) : (seededFirstRead ? startDateStr : null),
     srReviewsDue:     [],     // {num, dueDate, scheduled: false}
-    mcqCount:         carriedMcq,
-    srReviewCount:    carriedSr,
+    mcqCount:         useCarry ? carriedMcq : seededMcq,
+    srReviewCount:    useCarry ? carriedSr : seededSr,
     activities:       [],
   };
 }
@@ -229,6 +271,7 @@ function applyStateTransitions(ts, settings) {
 function assignDay0s(topicStates, sessions, settings) {
   const longSessions  = sessions.filter(s => s.type === 'long');
   const shortSessions = sessions.filter(s => s.type === 'short');
+  let earliestAllowedDate = null;
 
   for (const ts of topicStates) {
     if (ts.firstReadComplete) continue;
@@ -239,6 +282,7 @@ function assignDay0s(topicStates, sessions, settings) {
     // Prefer a single long session
     for (const sess of longSessions) {
       if (sess.isMockExam) continue;
+      if (earliestAllowedDate && sess.date < earliestAllowedDate) continue;
       if (sess.budgetMins - sess.usedMins >= readDur) {
         scheduleActivity(sess, ts, 'first_read',
           `First read — ${ts.name}`, settings);
@@ -247,6 +291,7 @@ function assignDay0s(topicStates, sessions, settings) {
         ts.firstReadComplete= true;
         ts.firstReadP1Date  = sess.date;
         ts.firstReadCompleteDate = sess.date;
+        earliestAllowedDate = ts.day0;
         assigned = true;
         break;
       }
@@ -261,6 +306,7 @@ function assignDay0s(topicStates, sessions, settings) {
     for (let i = 0; i < shortSessions.length; i++) {
       const s1 = shortSessions[i];
       if (s1.isMockExam || s1.budgetMins - s1.usedMins < halfDur) continue;
+      if (earliestAllowedDate && s1.date < earliestAllowedDate) continue;
 
       // Find next short session with enough budget
       for (let j = i + 1; j < shortSessions.length; j++) {
@@ -278,6 +324,7 @@ function assignDay0s(topicStates, sessions, settings) {
         ts.firstReadComplete = false;
         ts.firstReadP1Date   = s1.date;
         ts.firstReadCompleteDate = s2.date;
+        earliestAllowedDate = ts.day0;
         p1Session            = s1;
         assigned             = true;
         break;
@@ -304,6 +351,7 @@ function reserveMockSlots(sessions, eligibilityDate, examDate, settings) {
   const candidates = sessions.filter(s =>
     s.type === 'long' &&
     !s.isMockExam &&
+    s.usedMins === 0 &&
     parseDate(s.date) >= elig &&
     parseDate(s.date) < addDays(exam, -1)
   );
@@ -329,18 +377,6 @@ function reserveMockSlots(sessions, eligibilityDate, examDate, settings) {
     }];
     sess.usedMins = sess.activities[0].durationMins;
     mockDates.push(sess.date);
-
-    // Reserve weakness review: next available long or two shorts after mock
-    const mockIndex = sessions.indexOf(sess);
-    let wrScheduled = false;
-    for (let j = mockIndex + 1; j < sessions.length && !wrScheduled; j++) {
-      const s = sessions[j];
-      if (s.isMockExam || s.isWeaknessReview) continue;
-      if (s.type === 'long' && s.usedMins === 0) {
-        s.isWeaknessReview = true;
-        wrScheduled = true;
-      }
-    }
   }
 
   return mockDates;
@@ -603,20 +639,21 @@ function buildStateTimeline(topicStates, startDate, examDate) {
 
 // ── Eligibility date computation ──────────────────────────────────────────────
 
-function computeEligibilityDate(topicStates) {
-  // Eligibility = all topics have had first read + first MCQ
-  const firstMCQDates = topicStates.map(ts => {
-    const mcqAct = (ts.activities || []).find(a => a.type === 'mcq');
-    return mcqAct ? mcqAct.date : null;
+function computeWeakEligibilityDate(topicStates, examDate) {
+  const weakDates = topicStates.map(ts => {
+    if (ts.state === 'weak' || ts.state === 'healthy' || ts.state === 'mastered') {
+      return ts.weakDate || ts.healthyDate || ts.masteredDate || ts.readyDate || ts.day0;
+    }
+    return null;
   });
 
-  if (firstMCQDates.some(d => d === null)) {
-    // Some topics haven't had a first MCQ → not eligible yet
-    // Use exam date minus some buffer as fallback
-    return null;
+  if (weakDates.some(d => !d)) {
+    // If even one topic did not reach weak, no mocks should be scheduled.
+    return parseDate(examDate);
   }
 
-  return firstMCQDates.reduce((latest, d) => (d > latest ? d : latest), firstMCQDates[0]);
+  const latest = weakDates.reduce((acc, d) => (d > acc ? d : acc), weakDates[0]);
+  return parseDate(latest);
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
@@ -642,7 +679,7 @@ function generatePlan(config) {
     };
   }
 
-  const topicStates = config.topics.map(initTopicState);
+  const topicStates = config.topics.map(t => initTopicState(t, config.startDate, settings));
   const sessions    = buildSessionGrid(
     parseDate(config.startDate),
     parseDate(config.examDate),
@@ -661,25 +698,20 @@ function generatePlan(config) {
     }
   });
 
-  // Determine eligibility for mock exams
-  const postFirstReadDates = topicStates.map(ts => ts.day0).filter(Boolean);
-  const eligDate = postFirstReadDates.length === topicStates.length
-    ? addDays(parseDate(postFirstReadDates.reduce((l, d) => (d > l ? d : l))), 2)
-    : parseDate(config.examDate);
-
-  // Reserve mock exam slots
-  const mockDates = reserveMockSlots(
-    sessions,
-    dateStr(eligDate),
-    config.examDate,
-    settings
-  );
-
   // Pass 2: fill sessions by priority
   fillSessions(topicStates, sessions, settings, config.examDate);
 
   // Final state transitions
   topicStates.forEach(ts => applyStateTransitions(ts, settings));
+
+  // Solid gating: mocks are allowed only after every topic has reached at least weak.
+  const weakEligibilityDate = computeWeakEligibilityDate(topicStates, config.examDate);
+  const mockDates = reserveMockSlots(
+    sessions,
+    dateStr(weakEligibilityDate),
+    config.examDate,
+    settings
+  );
 
   const overflow = detectOverflow(topicStates, settings);
 
@@ -705,7 +737,7 @@ function generatePlan(config) {
     topics:         topicStates,
     schedule,
     mockExamDates:  mockDates,
-    eligibilityDate:dateStr(eligDate),
+    eligibilityDate:dateStr(weakEligibilityDate),
     overflow,
     stateTimeline,
     generatedAt:    new Date().toISOString(),
@@ -728,19 +760,41 @@ function replan(existingPlan, updates) {
     aheadSessions,
   });
 
-  const newConfig = {
-    name:           existingPlan.name,
-    topics:         existingPlan.topics.map(t => ({
-      id:   t.id,
+  const requestedTopics = (updates.topics && updates.topics.length)
+    ? updates.topics
+    : existingPlan.topics.map(t => ({
+      id: t.id,
       name: t.name,
       size: t.size,
-      __carryForward:    true,
-      day0:              carryForward[t.id]?.day0 || null,
-      firstReadP1Date:   carryForward[t.id]?.firstReadP1Date || null,
-      firstReadComplete: !!carryForward[t.id]?.firstReadComplete,
-      mcqCount:          carryForward[t.id]?.mcqCount || 0,
-      srReviewCount:     carryForward[t.id]?.srReviewCount || 0,
-    })),
+      startingState: t.startingState || 'not_started',
+    }));
+
+  const newConfig = {
+    name:           existingPlan.name,
+    topics:         requestedTopics.map(t => {
+      const carry = carryForward[t.id];
+      if (carry) {
+        return {
+          id:   t.id,
+          name: t.name,
+          size: t.size,
+          startingState: t.startingState || 'not_started',
+          __carryForward:    true,
+          day0:              carry.day0 || null,
+          firstReadP1Date:   carry.firstReadP1Date || null,
+          firstReadComplete: !!carry.firstReadComplete,
+          mcqCount:          carry.mcqCount || 0,
+          srReviewCount:     carry.srReviewCount || 0,
+        };
+      }
+
+      return {
+        id: t.id,
+        name: t.name,
+        size: t.size,
+        startingState: t.startingState || 'not_started',
+      };
+    }),
     examDate:       updates.examDate       || existingPlan.examDate,
     startDate:      today,
     weeklySchedule: updates.weeklySchedule || existingPlan.weeklySchedule,

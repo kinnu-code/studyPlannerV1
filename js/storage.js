@@ -58,6 +58,24 @@ const Storage = {
   loadPlan()      { return Storage.load(KEYS.PLAN, null); },
   clearPlan()     { Storage.remove(KEYS.PLAN); },
 
+  clearCachedPlans() {
+    // Remove canonical plan keys.
+    Storage.remove(KEYS.PLAN);
+    Storage.remove(KEYS.PLAN_NAME);
+
+    // Remove any additional/legacy plan cache keys.
+    const toRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      const lower = k.toLowerCase();
+      if (lower.startsWith('sp_plan') || lower.includes('current_plan') || lower.includes('cached_plan')) {
+        toRemove.push(k);
+      }
+    }
+    toRemove.forEach(k => localStorage.removeItem(k));
+  },
+
   hasPlan()       { return localStorage.getItem(KEYS.PLAN) !== null; },
 
   // ── File Download ─────────────────────────────────────────────────────────
@@ -138,7 +156,7 @@ const Storage = {
       startDate:      plan.startDate,
       weeklySchedule: plan.weeklySchedule,
       settings:       plan.settings,
-      topics:         plan.topics.map(t => ({ id: t.id, name: t.name, size: t.size })),
+      topics:         plan.topics.map(t => ({ id: t.id, name: t.name, size: t.size, startingState: t.startingState || 'not_started' })),
       exportedAt:     new Date().toISOString(),
     };
     Storage.downloadJSON(plan, `${safeName}.json`);

@@ -401,12 +401,49 @@ textarea { resize: vertical; min-height: 80px; }
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px;
+  padding: 10px 10px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   margin-bottom: 6px;
   background: var(--surface);
   transition: border-color 0.15s;
+}
+
+.topic-list-header {
+  display: grid;
+  grid-template-columns: 24px minmax(220px, 1fr) 140px 180px 64px 30px;
+  gap: 10px;
+  padding: 0 10px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.topic-item {
+  display: grid;
+  grid-template-columns: 24px minmax(220px, 1fr) 140px 180px 64px 30px;
+  gap: 10px;
+}
+
+.topic-state-select {
+  width: auto;
+  max-width: none;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 20px;
+}
+
+.topic-move-wrap {
+  display: inline-flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.topic-move {
+  min-width: 28px;
+  padding: 4px 0;
 }
 .topic-item:hover { border-color: #C8C8D4; }
 .topic-item-name { flex: 1; font-size: 13px; }

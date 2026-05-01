@@ -70,6 +70,7 @@
               <div class="btn-group">
                 <button class="btn btn-primary" id="btn-view-plan">View Plan</button>
                 <button class="btn btn-outline" id="btn-update-plan">Update</button>
+                <button class="btn btn-danger" id="btn-clear-cached-plan">Clear Cached Plans</button>
               </div>
             </div>
           </div>
@@ -98,6 +99,11 @@
               <p>Upload a previously saved plan file to continue where you left off or update your schedule.</p>
               <button class="btn btn-outline btn-lg" id="btn-new-plan-2" onclick="App.navigate('view-update')">Load Plan</button>
             </div>
+          </div>
+          <div class="card" style="text-align:center;">
+            <div class="card-title">Clear Cached Plans</div>
+            <p class="text-sm text-muted mb-16">Removes all in-app cached plans from browser memory and local storage. Downloaded files on your drive are not deleted.</p>
+            <button class="btn btn-danger" id="btn-clear-cached-plan-empty">Clear Cached Plans</button>
           </div>
         </div>
       </div>
@@ -171,7 +177,7 @@
           <div class="card">
             <div class="flex-center gap-12" style="margin-bottom:16px;">
               <div class="card-title" style="margin:0;flex:1;">Review topics <span class="text-muted text-sm fw-400" id="review-count"></span></div>
-              <div class="text-xs text-muted">S = Small (20 min) · M = Medium (35 min) · L = Large (50 min)</div>
+              <div class="text-xs text-muted">Easy = short learning time · Medium = moderate learning time · Hard = longer learning time</div>
             </div>
             <div id="topic-review-list"></div>
           </div>
@@ -299,13 +305,13 @@
 </div><!-- /app -->
 
 <!-- ── Scripts (order matters) ──────────────────────────────────────────── -->
-<script src="prompts.js"></script>
-<script src="js/storage.js"></script>
-<script src="js/api.js"></script>
-<script src="js/planner.js"></script>
-<script src="js/chart.js"></script>
-<script src="js/ui.js"></script>
-<script src="js/app.js"></script>
+<script src="prompts.js?v=20260501c"></script>
+<script src="js/storage.js?v=20260501c"></script>
+<script src="js/api.js?v=20260501c"></script>
+<script src="js/planner.js?v=20260501c"></script>
+<script src="js/chart.js?v=20260501c"></script>
+<script src="js/ui.js?v=20260501c"></script>
+<script src="js/app.js?v=20260501c"></script>
 
 </body>
 </html>
