@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Study Planner</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
+  <nav id="sidebar">
+    <div class="sidebar-logo">Study<span>Planner</span></div>
+
+    <div class="sidebar-section">Plan</div>
+    <div class="nav-item" data-view="view-home">
+      <span class="nav-icon">🏠</span> Home
+    </div>
+    <div class="nav-item" data-view="view-setup">
+      <span class="nav-icon">✨</span> New Plan
+    </div>
+    <div class="nav-item" data-view="view-plan">
+      <span class="nav-icon">📅</span> View Plan
+    </div>
+    <div class="nav-item" data-view="view-update">
+      <span class="nav-icon">🔄</span> Update Plan
+    </div>
+
+    <div class="sidebar-section">Config</div>
+    <div class="nav-item" data-view="view-settings">
+      <span class="nav-icon">⚙️</span> Settings
+    </div>
+
+    <div class="sidebar-bottom">
+      <div class="nav-item" data-view="view-settings">
+        <span class="nav-icon">🔑</span> API Key
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Main ────────────────────────────────────────────────────────────── -->
+  <div id="main">
+    <div id="topbar">
+      <span class="topbar-title" id="topbar-title">Smart Study Planner</span>
+      <span class="topbar-badge" id="api-status-badge"></span>
+      <span class="topbar-badge" id="topbar-badge" style="display:none;"></span>
+    </div>
+
+    <div id="content">
+
+      <!-- ════════════════════════════════════════════════════════════════
+           HOME
+           ════════════════════════════════════════════════════════════════ -->
+      <div id="view-home" class="view active">
+        <div id="home-content"></div>
+
+        <!-- Has plan -->
+        <div id="home-has-plan" style="display:none;">
+          <div class="card">
+            <div class="flex-center gap-12" style="margin-bottom:16px;">
+              <div style="flex:1;">
+                <div class="card-title" id="home-plan-name" style="margin-bottom:4px;font-size:18px;"></div>
+                <div class="text-sm text-muted">Exam: <strong id="home-plan-exam"></strong></div>
+                <div class="text-xs text-muted mt-4" id="home-plan-stats"></div>
+              </div>
+              <div class="btn-group">
+                <button class="btn btn-primary" id="btn-view-plan">View Plan</button>
+                <button class="btn btn-outline" id="btn-update-plan">Update</button>
+              </div>
+            </div>
+          </div>
+          <div class="card-row">
+            <div class="card" style="text-align:center;padding:40px 20px;">
+              <div class="empty-icon">📅</div>
+              <h3>Continue studying</h3>
+              <p>Your plan is loaded. View your daily schedule or update the plan if your availability changed.</p>
+              <button class="btn btn-primary btn-lg" id="btn-view-plan-2" onclick="App.navigate('view-plan')">Open Plan</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- No plan -->
+        <div id="home-no-plan">
+          <div class="card-row">
+            <div class="card" style="text-align:center;padding:48px 24px;">
+              <div class="empty-icon">✨</div>
+              <h3>Start a new plan</h3>
+              <p>Enter your exam details and let the planner build an optimised, day-by-day study schedule.</p>
+              <button class="btn btn-primary btn-lg" id="btn-new-plan">Create Plan</button>
+            </div>
+            <div class="card" style="text-align:center;padding:48px 24px;">
+              <div class="empty-icon">📂</div>
+              <h3>Resume existing plan</h3>
+              <p>Upload a previously saved plan file to continue where you left off or update your schedule.</p>
+              <button class="btn btn-outline btn-lg" id="btn-new-plan-2" onclick="App.navigate('view-update')">Load Plan</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════════════════════════════════════════════════════
+           SETUP WIZARD
+           ════════════════════════════════════════════════════════════════ -->
+      <div id="view-setup" class="view">
+
+        <!-- Stepper -->
+        <div class="stepper">
+          <div class="step active" data-step="1"><div class="step-num">1</div>Topics</div>
+          <div class="step-connector" data-after="1"></div>
+          <div class="step" data-step="2"><div class="step-num">2</div>Review &amp; Schedule</div>
+          <div class="step-connector" data-after="2"></div>
+          <div class="step" data-step="3"><div class="step-num">3</div>Generate</div>
+        </div>
+
+        <div id="setup-alert" class="mb-16"></div>
+
+        <!-- ── Step 1: Topic input ────────────────────────────────────── -->
+        <div data-step-panel="1">
+          <div class="card">
+            <div class="card-title">How would you like to provide your topics?</div>
+            <div class="radio-group">
+              <label class="radio-card selected">
+                <input type="radio" name="topic-mode" value="exam" checked />
+                <div class="radio-card-title">Exam name only</div>
+                <div class="radio-card-desc">AI generates the full topic list from the syllabus</div>
+              </label>
+              <label class="radio-card">
+                <input type="radio" name="topic-mode" value="high-level" />
+                <div class="radio-card-title">High-level topics</div>
+                <div class="radio-card-desc">AI breaks these down into granular sub-topics</div>
+              </label>
+              <label class="radio-card">
+                <input type="radio" name="topic-mode" value="granular" />
+                <div class="radio-card-title">Full topic list</div>
+                <div class="radio-card-desc">Provide the complete list; AI just assigns sizes</div>
+              </label>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="form-group">
+              <label>Exam name</label>
+              <input type="text" id="exam-name-input" placeholder="e.g. SQE FLK1, CFA Level 1, USMLE Step 1…" />
+              <div class="input-hint">Used as the plan name and for AI topic generation.</div>
+            </div>
+            <div class="form-group">
+              <label>Topic list <span class="text-muted fw-400">(for high-level or granular mode — one per line)</span></label>
+              <textarea id="topic-textarea" rows="8" placeholder="Contract Law&#10;Tort&#10;Land Law&#10;Equity and Trusts&#10;…"></textarea>
+              <div style="margin-top:8px;">
+                <button class="btn btn-outline btn-sm" id="btn-upload-topics">📎 Upload from file</button>
+              </div>
+            </div>
+            <div class="btn-group">
+              <button class="btn btn-primary" id="btn-step1-next">Continue →</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Step 2: Topic review ───────────────────────────────────── -->
+        <div data-step-panel="2" style="display:none;">
+          <div id="setup-alert-2" class="mb-16"></div>
+          <div class="card">
+            <div class="flex-center gap-12" style="margin-bottom:16px;">
+              <div class="card-title" style="margin:0;flex:1;">Review topics <span class="text-muted text-sm fw-400" id="review-count"></span></div>
+              <div class="text-xs text-muted">S = Small (20 min) · M = Medium (35 min) · L = Large (50 min)</div>
+            </div>
+            <div id="topic-review-list"></div>
+          </div>
+          <div class="card">
+            <div class="card-title">Dates &amp; Plan Name</div>
+            <div class="inline-fields">
+              <div class="form-group">
+                <label>Plan name</label>
+                <input type="text" id="plan-name" placeholder="e.g. SQE FLK1 June 2026" />
+              </div>
+              <div class="form-group">
+                <label>Start studying</label>
+                <input type="date" id="start-date" />
+              </div>
+              <div class="form-group">
+                <label>Exam date</label>
+                <input type="date" id="exam-date" />
+              </div>
+            </div>
+            <div class="card-title mt-16">Weekly study schedule</div>
+            <div class="input-hint mb-4">How many sessions can you do each day?</div>
+            <div id="schedule-table-container"></div>
+          </div>
+          <div class="btn-group mt-16">
+            <button class="btn btn-outline" id="btn-step2-back">← Back</button>
+            <button class="btn btn-primary" id="btn-step2-next">Review &amp; Generate →</button>
+          </div>
+        </div>
+
+        <!-- ── Step 3: Confirm + generate ────────────────────────────── -->
+        <div data-step-panel="3" style="display:none;">
+          <div id="setup-alert-3" class="mb-16"></div>
+          <div class="card">
+            <div class="card-title">Ready to generate</div>
+            <div class="alert alert-info">
+              The plan will use your saved settings. You can adjust spaced repetition intervals, session lengths, and MCQ thresholds in <strong>Settings</strong> before generating.
+            </div>
+            <div class="btn-group mt-16">
+              <button class="btn btn-primary btn-lg" id="btn-step3-generate">🚀 Generate Plan</button>
+              <button class="btn btn-outline" id="btn-step3-back">← Back</button>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /view-setup -->
+
+      <!-- ════════════════════════════════════════════════════════════════
+           PLAN VIEW
+           ════════════════════════════════════════════════════════════════ -->
+      <div id="view-plan" class="view">
+        <div id="plan-overflow-banner"></div>
+        <div id="plan-overflow-options" style="display:none;"></div>
+        <div id="plan-stats" class="mb-16"></div>
+        <div id="plan-happy-prompt"></div>
+
+        <div id="plan-tabs-container" style="margin-top:24px;">
+          <div class="tabs">
+            <div class="tab active" data-panel="tab-timeline">Timeline</div>
+            <div class="tab"        data-panel="tab-schedule">Day-by-Day</div>
+            <div class="tab"        data-panel="tab-topics">Topics</div>
+          </div>
+
+          <!-- Timeline tab -->
+          <div class="tab-panel active" id="tab-timeline">
+            <div class="card">
+              <div class="flex-center gap-12" style="margin-bottom:16px;">
+                <div class="card-title" style="margin:0;flex:1;">Topic State Timeline</div>
+                <div id="summary-chart"></div>
+              </div>
+              <div id="timeline-chart" style="overflow-x:auto;"></div>
+            </div>
+          </div>
+
+          <!-- Day-by-day tab -->
+          <div class="tab-panel" id="tab-schedule">
+            <div class="flex-center gap-12" style="margin-bottom:16px;">
+              <div style="flex:1;"></div>
+              <button class="btn btn-primary btn-sm" id="btn-export-plan">⬇ Download Plan Files</button>
+              <button class="btn btn-outline btn-sm" id="btn-replan">Update Plan</button>
+            </div>
+            <div id="day-plan-list"></div>
+          </div>
+
+          <!-- Topics tab -->
+          <div class="tab-panel" id="tab-topics">
+            <div class="card" style="overflow-x:auto;">
+              <div id="topic-table"></div>
+            </div>
+          </div>
+        </div>
+      </div><!-- /view-plan -->
+
+      <!-- ════════════════════════════════════════════════════════════════
+           UPDATE / REPLAN
+           ════════════════════════════════════════════════════════════════ -->
+      <div id="view-update" class="view">
+        <div id="update-alert" class="mb-16"></div>
+        <div id="update-content"></div>
+      </div>
+
+      <!-- ════════════════════════════════════════════════════════════════
+           SETTINGS
+           ════════════════════════════════════════════════════════════════ -->
+      <div id="view-settings" class="view">
+        <div id="settings-alert" class="mb-16"></div>
+
+        <div class="card">
+          <div class="card-title">API &amp; Model</div>
+          <div id="api-panel"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Planning Settings</div>
+          <div id="settings-form"></div>
+          <div class="btn-group mt-24">
+            <button class="btn btn-primary" id="btn-save-settings">Save Settings</button>
+            <button class="btn btn-outline" id="btn-reset-settings">Reset to Defaults</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- ── Scripts (order matters) ──────────────────────────────────────────── -->
+<script src="prompts.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/api.js"></script>
+<script src="js/planner.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>
