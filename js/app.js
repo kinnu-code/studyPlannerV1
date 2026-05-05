@@ -71,6 +71,16 @@ const App = {
     return false;
   },
 
+  _hasStateOrderingAnomaly(plan) {
+    const topics = plan?.topics || [];
+    for (const t of topics) {
+      if (t.readyDate && t.weakDate && t.readyDate > t.weakDate) return true;
+      if (t.weakDate && t.healthyDate && t.weakDate > t.healthyDate) return true;
+      if (t.healthyDate && t.masteredDate && t.healthyDate > t.masteredDate) return true;
+    }
+    return false;
+  },
+
   _rebuildPlanWithLatestLogic(plan) {
     return generatePlan({
       name: plan.name,
@@ -89,7 +99,7 @@ const App = {
 
   _normalizeLoadedPlan(plan) {
     if (!plan) return plan;
-    if (!App._hasDay0OrderingAnomaly(plan)) return plan;
+    if (!App._hasDay0OrderingAnomaly(plan) && !App._hasStateOrderingAnomaly(plan)) return plan;
 
     const repaired = App._rebuildPlanWithLatestLogic(plan);
     repaired._autoRepaired = true;
@@ -209,6 +219,7 @@ const App = {
 
   // Fix 1: return to setup view at the exact step the user was on
   _resumeSetup() {
+    if (App.setupStep > 2) App.setupStep = 2;
     UI.showView('view-setup');
     App._currentView = 'view-setup';
     UI.setTopbarTitle('New Plan', `Step ${App.setupStep}`, '');
@@ -346,18 +357,6 @@ const App = {
     });
     document.getElementById('btn-step2-next')?.addEventListener('click', () => App.step2Next());
 
-    // ── Step 3: generate ──────────────────────────────────────────────────
-
-    document.getElementById('btn-step3-back')?.addEventListener('click', () => {
-      App.setupStep = 2; UI.showStep(2);
-    });
-    document.getElementById('btn-step3-generate')?.addEventListener('click', () => App.generatePlan());
-
-    // Fix 1: Settings shortcut from step 3 — user returns here after editing settings
-    document.getElementById('btn-goto-settings')?.addEventListener('click', () => {
-      App.navigate('view-settings');
-    });
-
     // ── Home buttons ──────────────────────────────────────────────────────
 
     document.getElementById('btn-view-plan')?.addEventListener('click', () => App.navigate('view-plan'));
@@ -417,7 +416,7 @@ const App = {
     const topicText = document.getElementById('topic-textarea')?.value?.trim();
     const tips      = document.getElementById('topic-generator-tips')?.value?.trim() || '';
 
-    if (mode === 'exam' && !examName) {
+    if (!examName) {
       UI.showAlert('setup-alert', 'Please enter the exam name.', 'warn');
       return;
     }
@@ -442,6 +441,7 @@ const App = {
       }
 
       App.setupTopics     = topics.map(t => ({ ...t, startingState: t.startingState || 'not_started' }));
+      App.examName       = examName;
       App.setupStep       = 2;
       App.setupInProgress = true;  // Fix 1: AI has done work — guard against loss
       App._updateResumeButton();
@@ -469,7 +469,7 @@ const App = {
   step2Next() {
     const startDate = document.getElementById('start-date')?.value;
     const examDate  = document.getElementById('exam-date')?.value;
-    const planName  = document.getElementById('plan-name')?.value?.trim();
+    const examName  = (App.examName || document.getElementById('exam-name-input')?.value || '').trim();
 
     if (!startDate || !examDate) {
       UI.showAlert('setup-alert-2', 'Please set both start and exam dates.', 'warn');
@@ -479,16 +479,16 @@ const App = {
       UI.showAlert('setup-alert-2', 'Exam date must be after start date.', 'warn');
       return;
     }
-    if (!planName) {
-      UI.showAlert('setup-alert-2', 'Please give your plan a name.', 'warn');
+    if (!examName) {
+      UI.showAlert('setup-alert-2', 'Please enter the exam name in Step 1.', 'warn');
       return;
     }
 
-    App.planName  = planName;
+    App.planName  = examName;
     App.startDate = startDate;
     App.examDate  = examDate;
-    App.setupStep = 3;
-    UI.showStep(3);
+    App.setupStep = 2;
+    App.generatePlan();
   },
 
   // ── Generate plan ─────────────────────────────────────────────────────────
@@ -520,7 +520,7 @@ const App = {
 
     } catch (e) {
       UI.hideLoading();
-      UI.showAlert('setup-alert-3', `Plan generation failed: ${e.message}`, 'danger');
+      UI.showAlert('setup-alert-2', `Plan generation failed: ${e.message}`, 'danger');
     }
   },
 
@@ -531,7 +531,7 @@ const App = {
 
     // Keep a stable baseline while iterating through overflow adjustments.
     if (!App._overflowApplying) {
-      App.overflowBasePlan = plan?.overflow ? JSON.parse(JSON.stringify(plan)) : null;
+      App.overflowBasePlan = JSON.parse(JSON.stringify(plan));
     }
     App._overflowApplying = false;
 
@@ -550,16 +550,22 @@ const App = {
       Storage.savePlan(plan);
     }
 
-    UI.renderPlanStats(plan, document.getElementById('plan-stats'));
     UI.renderOverflowBanner(plan.overflow, document.getElementById('plan-overflow-banner'));
 
-    // Fix 2 + Fix 3: overflow options include schedule editor; overflow "update" → schedule_only form
+    // Always show fit options; auto-expand on shortfall, collapse otherwise.
     const overflowOpts = document.getElementById('plan-overflow-options');
-    if (plan.overflow && overflowOpts) {
+    if (overflowOpts) {
       overflowOpts.style.display = '';
-      UI.renderOverflowOptions(plan, App.overflowBasePlan || plan, overflowOpts, action => {
+      overflowOpts.innerHTML = `
+        <details class="card" id="plan-fit-options" ${plan.overflow ? 'open' : ''}>
+          <summary class="card-title" style="cursor:pointer;list-style:none;">Plan Fit Options ${plan.overflow ? '(Shortfall detected)' : ''}</summary>
+          <div id="plan-fit-options-body" style="margin-top:12px;"></div>
+        </details>
+      `;
+
+      const fitBody = document.getElementById('plan-fit-options-body');
+      UI.renderOverflowOptions(plan, App.overflowBasePlan || plan, fitBody, action => {
         if (action.type === 'update_schedule_nav') {
-          // Fix 3: navigate to update view but only show schedule controls
           App.replanContext = 'schedule_only';
           App.navigate('view-update');
           return;
@@ -574,17 +580,17 @@ const App = {
           return;
         }
 
-        if (action.type === 'recalculate_all' || action.type === 'view_updated_plan') {
+        if (action.type === 'recalculate_all') {
           const preview = App._buildAdjustedPlan(plan, action.options || {});
           App._overflowApplying = true;
           App.currentPlan = preview;
           Storage.savePlan(preview);
           App.showPlan(preview);
         }
-      });
-    } else if (overflowOpts) {
-      overflowOpts.style.display = 'none';
+      }, { showViewButton: false, showBottomActions: true });
     }
+
+    UI.renderPlanStats(plan, document.getElementById('plan-stats'));
 
     const chartContainer = document.getElementById('timeline-chart');
     if (chartContainer) Chart.renderTimeline(plan, chartContainer);
@@ -605,8 +611,6 @@ const App = {
           <span>Happy with this plan?</span>
           <button class="btn btn-primary btn-sm" style="margin-left:16px;"
             onclick="Storage.exportPlan(App.currentPlan)">⬇ Download Plan</button>
-          <button class="btn btn-outline btn-sm" style="margin-left:8px;"
-            onclick="App.replanContext='full';App.navigate('view-update')">Update Plan</button>
         </div>
       `;
     }
@@ -735,27 +739,18 @@ const App = {
   renderSettings() {
     const settings = Storage.loadSettings() || DEFAULT_SETTINGS;
     UI.renderSettings(settings, document.getElementById('settings-form'));
-    App._syncDefaultSchedule(Storage.loadDefaultSchedule() || App.settingsSchedule || App._defaultWeeklySchedule(), { persist: false, updateSetup: true });
-    UI.renderScheduleTable('settings-schedule-table', App.settingsSchedule, sched => {
-      App._syncDefaultSchedule(sched, { persist: true, updateSetup: true });
-    });
     UI.renderApiPanel(document.getElementById('api-panel'));
   },
 
   saveSettings() {
-    const s = UI.collectSettings(document.getElementById('settings-form'));
+    const s = UI.collectSettings(document.getElementById('settings-form'), Storage.loadSettings() || DEFAULT_SETTINGS);
     Storage.saveSettings(s);
-    App._syncDefaultSchedule(App.settingsSchedule || App._defaultWeeklySchedule(), { persist: true, updateSetup: true });
     UI.showAlert('settings-alert', 'Settings saved.', 'success');
   },
 
   resetSettings() {
     Storage.saveSettings(DEFAULT_SETTINGS);
-    App._syncDefaultSchedule(App._defaultWeeklySchedule(), { persist: true, updateSetup: true });
     UI.renderSettings(DEFAULT_SETTINGS, document.getElementById('settings-form'));
-    UI.renderScheduleTable('settings-schedule-table', App.settingsSchedule, sched => {
-      App._syncDefaultSchedule(sched, { persist: true, updateSetup: true });
-    });
     UI.showAlert('settings-alert', 'Settings reset to defaults.', 'info');
   },
 };

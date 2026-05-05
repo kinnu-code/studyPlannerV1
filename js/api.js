@@ -7,11 +7,26 @@ const REASONING_MODELS = new Set(['o1', 'o1-mini', 'o3', 'o3-mini', 'o4-mini', '
 
 function extractTopicLimit(tips = '') {
   const text = String(tips || '');
-  const m = text.match(/(?:limit|no\s+more\s+than|max(?:imum)?|cap(?:\s+at)?|exactly)\D{0,80}(\d{1,3})/i);
-  if (!m) return null;
-  const n = parseInt(m[1], 10);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return n;
+  const candidates = [];
+
+  const patterns = [
+    /(?:limit|no\s+more\s+than|max(?:imum)?|cap(?:\s+at)?|exactly|keep\s+it\s+to|only|just|at\s+most)\D{0,80}(\d{1,3})/ig,
+    /(\d{1,3})\s*(?:topics?|lessons?|units?|chapters?|modules?)\b/ig,
+    /(?:topics?|lessons?|units?|chapters?|modules?)\D{0,24}(\d{1,3})/ig,
+  ];
+
+  patterns.forEach(rx => {
+    let m;
+    while ((m = rx.exec(text)) !== null) {
+      const n = parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > 0 && n <= 300) {
+        candidates.push(n);
+      }
+    }
+  });
+
+  if (!candidates.length) return null;
+  return Math.min(...candidates);
 }
 
 function applyTopicLimit(list, tips = '') {
@@ -89,13 +104,23 @@ const API = {
     const raw = await API.call(messages);
     const sized = API.parseJSON(raw); // {name, size, justification}[]
 
+    const inputLimited = applyTopicLimit(topicList, tips);
+    const expectedCount = inputLimited.length;
+    const safeSized = Array.isArray(sized) ? sized : [];
+    const cappedSized = safeSized.slice(0, expectedCount);
+
     // Validate and normalise
-    return sized.map((item, i) => ({
-      id:            `topic-${Date.now()}-${i}`,
-      name:          item.name || topicList[i] || `Topic ${i + 1}`,
-      size:          ['S', 'M', 'L'].includes(item.size) ? item.size : 'M',
-      justification: item.justification || '',
-    }));
+    const out = [];
+    for (let i = 0; i < expectedCount; i++) {
+      const item = cappedSized[i] || {};
+      out.push({
+        id:            `topic-${Date.now()}-${i}`,
+        name:          item.name || inputLimited[i] || `Topic ${i + 1}`,
+        size:          ['S', 'M', 'L'].includes(item.size) ? item.size : 'M',
+        justification: item.justification || '',
+      });
+    }
+    return out;
   },
 
   // ── Combined flows ────────────────────────────────────────────────────────

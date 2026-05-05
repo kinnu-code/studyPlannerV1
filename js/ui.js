@@ -404,7 +404,9 @@ const UI = {
 
   // ── Overflow negotiation options ──────────────────────────────────────────
 
-  renderOverflowOptions(plan, basePlan, container, onSelect) {
+  renderOverflowOptions(plan, basePlan, container, onSelect, options = {}) {
+    const showViewButton = options.showViewButton !== false;
+    const showBottomActions = !!options.showBottomActions;
     const baseSettings = basePlan?.settings || plan.settings;
     const effectivePlanMastery = Math.max(2, parseInt(plan.settings.mcqForMastery) || 2);
     const effectivePlanHealthy = Math.max(1, Math.min(effectivePlanMastery - 1, parseInt(plan.settings.mcqForHealthy) || 1));
@@ -423,14 +425,29 @@ const UI = {
 
     container.innerHTML = '';
 
-    const actionBar = document.createElement('div');
-    actionBar.className = 'btn-group mb-16';
-    actionBar.innerHTML = `
-      <button class="btn btn-primary btn-sm" id="overflow-main-recalc">Recalculate</button>
-      <button class="btn btn-outline btn-sm" id="overflow-main-view">View Updated Plan</button>
-      <button class="btn btn-outline btn-sm" id="overflow-main-reset">Reset</button>
-    `;
-    container.appendChild(actionBar);
+    const createActionBar = (idPrefix) => {
+      const actionBar = document.createElement('div');
+      actionBar.className = 'btn-group mb-16';
+      actionBar.innerHTML = `
+        <button class="btn btn-primary btn-sm" id="${idPrefix}-recalc">Recalculate</button>
+        ${showViewButton ? `<button class="btn btn-outline btn-sm" id="${idPrefix}-view">View Updated Plan</button>` : ''}
+        <button class="btn btn-outline btn-sm" id="${idPrefix}-reset">Reset</button>
+      `;
+
+      actionBar.querySelector(`#${idPrefix}-recalc`)?.addEventListener('click', () => {
+        onSelect({ type: 'recalculate_all', options: collectOptions() });
+      });
+      actionBar.querySelector(`#${idPrefix}-view`)?.addEventListener('click', () => {
+        onSelect({ type: 'view_updated_plan', options: collectOptions() });
+      });
+      actionBar.querySelector(`#${idPrefix}-reset`)?.addEventListener('click', () => {
+        onSelect({ type: 'reset_all_overflow' });
+      });
+
+      return actionBar;
+    };
+
+    container.appendChild(createActionBar('overflow-main-top'));
 
     const hint = document.createElement('p');
     hint.className = 'text-sm text-muted mb-16';
@@ -456,16 +473,6 @@ const UI = {
         numberOfMocks: Math.max(0, parseInt(optionInputs.fewer_mocks?.value) || plan.settings.numberOfMocks),
       };
     };
-
-    document.getElementById('overflow-main-recalc').addEventListener('click', () => {
-      onSelect({ type: 'recalculate_all', options: collectOptions() });
-    });
-    document.getElementById('overflow-main-view').addEventListener('click', () => {
-      onSelect({ type: 'view_updated_plan', options: collectOptions() });
-    });
-    document.getElementById('overflow-main-reset').addEventListener('click', () => {
-      onSelect({ type: 'reset_all_overflow' });
-    });
 
     // Schedule adjustment option
     const scheduleCard = makeCard(
@@ -563,6 +570,13 @@ const UI = {
       card.appendChild(controls);
       container.appendChild(card);
     });
+
+    if (showBottomActions) {
+      const spacer = document.createElement('div');
+      spacer.className = 'mt-16';
+      container.appendChild(spacer);
+      container.appendChild(createActionBar('overflow-main-bottom'));
+    }
   },
 
   // ── Topic table (in plan view) ────────────────────────────────────────────
@@ -616,13 +630,6 @@ const UI = {
             <input type="text" id="setting-sr-intervals" value="${s.srIntervals.join(', ')}" />
             <div class="input-hint">Comma-separated. These are gaps between consecutive reviews, not days from Day 0.</div>
           </div>
-          <div class="form-group">
-            <label>Target State</label>
-            <select id="setting-target">
-              <option value="healthy"  ${s.targetState === 'healthy'  ? 'selected' : ''}>Healthy — completed reading and a few MCQ sessions</option>
-              <option value="mastered" ${s.targetState === 'mastered' ? 'selected' : ''}>Mastered — full spaced repetition + MCQ threshold met</option>
-            </select>
-          </div>
           <div class="inline-fields">
             <div class="form-group">
               <label>Short session (min)</label>
@@ -636,29 +643,6 @@ const UI = {
               <label>Mock exam (min)</label>
               <input type="number" id="setting-mock-mins" value="${s.mockExamMins}" min="30" max="360" />
             </div>
-          </div>
-          <div class="inline-fields">
-            <div class="form-group">
-              <label>MCQ sessions → Healthy</label>
-              <input type="number" id="setting-mcq-healthy" value="${s.mcqForHealthy}" min="1" max="10" />
-            </div>
-            <div class="form-group">
-              <label>MCQ sessions → Mastery</label>
-              <input type="number" id="setting-mcq-mastery" value="${s.mcqForMastery}" min="1" max="15" />
-            </div>
-            <div class="form-group">
-              <label>Min SR reviews → Mastery</label>
-              <input type="number" id="setting-sr-mastery" value="${s.srReviewsForMastery}" min="1" max="5" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Number of mock exams</label>
-            <input type="number" id="setting-mocks" value="${s.numberOfMocks}" min="0" max="10" />
-          </div>
-          <div class="form-group mt-16">
-            <label>Default Weekly Study Schedule</label>
-            <div class="input-hint mb-4">Used to prefill New Plan weekly schedule. You can still adjust it per plan.</div>
-            <div id="settings-schedule-table"></div>
           </div>
         </div>
 
@@ -684,25 +668,15 @@ const UI = {
     `;
   },
 
-  collectSettings(container) {
+  collectSettings(container, baseSettings = {}) {
     const get = id => document.getElementById(id);
-    const s = { ...DEFAULT_SETTINGS };
+    const s = { ...DEFAULT_SETTINGS, ...baseSettings };
 
     const intervalsRaw = get('setting-sr-intervals')?.value || '';
     s.srIntervals = intervalsRaw.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n));
-    s.targetState          = get('setting-target')?.value || 'mastered';
     s.shortSessionMins     = parseInt(get('setting-short-mins')?.value) || 25;
     s.longSessionMins      = parseInt(get('setting-long-mins')?.value) || 60;
     s.mockExamMins         = parseInt(get('setting-mock-mins')?.value) || 120;
-    s.mcqForHealthy        = parseInt(get('setting-mcq-healthy')?.value) || 3;
-    s.mcqForMastery        = parseInt(get('setting-mcq-mastery')?.value) || 3;
-    s.mcqForMastery        = Math.max(2, s.mcqForMastery);
-    s.mcqForHealthy        = Math.max(1, s.mcqForHealthy);
-    if (s.mcqForHealthy >= s.mcqForMastery) {
-      s.mcqForHealthy = s.mcqForMastery - 1;
-    }
-    s.srReviewsForMastery  = parseInt(get('setting-sr-mastery')?.value) || 3;
-    s.numberOfMocks        = parseInt(get('setting-mocks')?.value) || 3;
 
     // Activity times
     s.activityTimes = { ...DEFAULT_SETTINGS.activityTimes };

@@ -18,6 +18,7 @@ const DEFAULT_SETTINGS = {
   longSessionMins:      60,
   mcqForHealthy:        2,    // total MCQ sessions to reach Healthy
   mcqForMastery:        3,    // total MCQ sessions to reach Mastery
+  allowSameDayFirstMcq: false,
   srReviewsForMastery:  3,    // min SR reviews required for Mastery
   numberOfMocks:        3,
   activityTimes: {
@@ -71,12 +72,31 @@ function normalizePlannerSettings(settings) {
     out.mcqForHealthy = out.mcqForMastery - 1;
   }
 
+  out.allowSameDayFirstMcq = !!out.allowSameDayFirstMcq;
+
   return out;
 }
 
 function normalizeStartingState(state) {
   const s = String(state || 'not_started').trim().toLowerCase();
   return VALID_STATES.has(s) ? s : 'not_started';
+}
+
+function dateMin(a, b) {
+  if (!a) return b || null;
+  if (!b) return a || null;
+  return a <= b ? a : b;
+}
+
+function stateRank(state) {
+  const order = {
+    not_started: 0,
+    ready: 1,
+    weak: 2,
+    healthy: 3,
+    mastered: 4,
+  };
+  return order[state] ?? 0;
 }
 
 // ── Session grid builder ──────────────────────────────────────────────────────
@@ -264,6 +284,56 @@ function applyStateTransitions(ts, settings) {
     ts.state        = 'mastered';
     ts.masteredDate = ts.activities.filter(a => a.type === 'mcq')[settings.mcqForMastery - 1]?.date || ts.healthyDate;
   }
+}
+
+function enforceStateOrder(ts) {
+  const firstMcqDate = ts.activities?.find(a => a.type === 'mcq')?.date || null;
+
+  if (!ts.readyDate) {
+    ts.readyDate = ts.firstReadCompleteDate || ts.day0 || firstMcqDate || null;
+  }
+
+  if (!ts.weakDate && (stateRank(ts.state) >= 2 || ts.mcqCount >= 1)) {
+    ts.weakDate = firstMcqDate || ts.readyDate;
+  }
+
+  if (!ts.healthyDate && (stateRank(ts.state) >= 3 || ts.mcqCount >= 1)) {
+    ts.healthyDate = ts.weakDate || ts.readyDate;
+  }
+
+  if (!ts.masteredDate && stateRank(ts.state) >= 4) {
+    ts.masteredDate = ts.healthyDate || ts.weakDate || ts.readyDate;
+  }
+
+  // Enforce non-decreasing milestone chronology.
+  if (ts.readyDate && ts.weakDate && ts.readyDate > ts.weakDate) {
+    ts.readyDate = ts.weakDate;
+  }
+  if (ts.weakDate && ts.healthyDate && ts.weakDate > ts.healthyDate) {
+    ts.weakDate = ts.healthyDate;
+  }
+  if (ts.healthyDate && ts.masteredDate && ts.healthyDate > ts.masteredDate) {
+    ts.healthyDate = ts.masteredDate;
+  }
+
+  // Ensure prerequisites exist for higher states.
+  if (ts.masteredDate) {
+    ts.healthyDate = dateMin(ts.healthyDate, ts.masteredDate);
+    ts.weakDate = dateMin(ts.weakDate, ts.healthyDate);
+    ts.readyDate = dateMin(ts.readyDate, ts.weakDate);
+  } else if (ts.healthyDate) {
+    ts.weakDate = dateMin(ts.weakDate, ts.healthyDate);
+    ts.readyDate = dateMin(ts.readyDate, ts.weakDate);
+  } else if (ts.weakDate) {
+    ts.readyDate = dateMin(ts.readyDate, ts.weakDate);
+  }
+}
+
+function hasStateOrderAnomaly(ts) {
+  if (ts.readyDate && ts.weakDate && ts.readyDate > ts.weakDate) return true;
+  if (ts.weakDate && ts.healthyDate && ts.weakDate > ts.healthyDate) return true;
+  if (ts.healthyDate && ts.masteredDate && ts.healthyDate > ts.masteredDate) return true;
+  return false;
 }
 
 // ── Pass 1: Assign Day 0 (first reads) ───────────────────────────────────────
@@ -464,6 +534,7 @@ function fillSessions(topicStates, sessions, settings, examDate) {
       // ── Priority 2: First MCQ on Ready topics ────────────────────────────
       const readyTopic = topicStates.find(ts =>
         ts.state === 'ready' && ts.mcqCount === 0 &&
+        canScheduleFirstMcq(ts, sessDate, settings) &&
         actDuration('mcq', ts.size, settings) <= remaining
       );
       if (readyTopic) {
@@ -504,6 +575,7 @@ function fillSessions(topicStates, sessions, settings, examDate) {
           notStarted.day0              = sess.date;
           notStarted.firstReadComplete = true;
           notStarted.firstReadP1Date   = sess.date;
+          notStarted.firstReadCompleteDate = sess.date;
           applyStateTransitions(notStarted, settings);
           keepFilling = true;
           continue;
@@ -554,6 +626,12 @@ function fillSessions(topicStates, sessions, settings, examDate) {
       }
     }
   }
+}
+
+function canScheduleFirstMcq(topicState, sessionDate, settings) {
+  if (settings.allowSameDayFirstMcq) return true;
+  if (!topicState.firstReadCompleteDate) return false;
+  return sessionDate > parseDate(topicState.firstReadCompleteDate);
 }
 
 // ── Overflow detection ────────────────────────────────────────────────────────
@@ -702,7 +780,10 @@ function generatePlan(config) {
   fillSessions(topicStates, sessions, settings, config.examDate);
 
   // Final state transitions
-  topicStates.forEach(ts => applyStateTransitions(ts, settings));
+  topicStates.forEach(ts => {
+    applyStateTransitions(ts, settings);
+    enforceStateOrder(ts);
+  });
 
   // Solid gating: mocks are allowed only after every topic has reached at least weak.
   const weakEligibilityDate = computeWeakEligibilityDate(topicStates, config.examDate);
@@ -714,6 +795,11 @@ function generatePlan(config) {
   );
 
   const overflow = detectOverflow(topicStates, settings);
+
+  const stateOrderChecks = {
+    checkedTopics: topicStates.length,
+    anomalies: topicStates.filter(hasStateOrderAnomaly).map(t => ({ id: t.id, name: t.name })),
+  };
 
   // Build state timeline for chart
   const stateTimeline = buildStateTimeline(topicStates, config.startDate, config.examDate);
@@ -739,6 +825,7 @@ function generatePlan(config) {
     mockExamDates:  mockDates,
     eligibilityDate:dateStr(weakEligibilityDate),
     overflow,
+    stateOrderChecks,
     stateTimeline,
     generatedAt:    new Date().toISOString(),
   };
