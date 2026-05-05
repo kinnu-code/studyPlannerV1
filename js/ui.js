@@ -713,16 +713,17 @@ const UI = {
             <option value="o4-mini"       ${model === 'o4-mini'       ? 'selected' : ''}>o4-mini (medium reasoning) — recommended</option>
             <option value="o3-mini"       ${model === 'o3-mini'       ? 'selected' : ''}>o3-mini (medium reasoning)</option>
             <option value="o3"            ${model === 'o3'            ? 'selected' : ''}>o3 (high reasoning)</option>
+            <option value="gpt-4.1-mini"  ${model === 'gpt-4.1-mini'  ? 'selected' : ''}>gpt-4.1-mini</option>
+            <option value="gpt-4.1-nano"  ${model === 'gpt-4.1-nano'  ? 'selected' : ''}>gpt-4.1-nano</option>
             <option value="gpt-4o"        ${model === 'gpt-4o'        ? 'selected' : ''}>gpt-4o</option>
             <option value="gpt-4.1"       ${model === 'gpt-4.1'       ? 'selected' : ''}>gpt-4.1</option>
-            <option value="gpt-4.5-preview"${model==='gpt-4.5-preview'? 'selected' : ''}>gpt-4.5-preview</option>
             <option value="gpt-4o-mini"   ${model === 'gpt-4o-mini'   ? 'selected' : ''}>gpt-4o-mini (fast, low cost)</option>
-            <option value="custom"        ${!['o4-mini','o3-mini','o3','gpt-4o','gpt-4.1','gpt-4.5-preview','gpt-4o-mini'].includes(model) ? 'selected' : ''}>Custom…</option>
+            <option value="custom"        ${!['o4-mini','o3-mini','o3','gpt-4.1-mini','gpt-4.1-nano','gpt-4o','gpt-4.1','gpt-4o-mini'].includes(model) ? 'selected' : ''}>Custom…</option>
           </select>
         </div>
         <div class="form-group" id="custom-model-group" style="display:none;">
           <label>Custom model name</label>
-          <input type="text" id="custom-model-input" value="${['o4-mini','o3-mini','o3','gpt-4o','gpt-4.1','gpt-4.5-preview','gpt-4o-mini'].includes(model) ? '' : model}" placeholder="e.g. gpt-4o-2024-11-20" />
+          <input type="text" id="custom-model-input" value="${['o4-mini','o3-mini','o3','gpt-4.1-mini','gpt-4.1-nano','gpt-4o','gpt-4.1','gpt-4o-mini'].includes(model) ? '' : model}" placeholder="e.g. gpt-4o-2024-11-20" />
         </div>
         <div id="api-test-result"></div>
       </div>
@@ -733,7 +734,7 @@ const UI = {
       document.getElementById('custom-model-group').style.display =
         e.target.value === 'custom' ? '' : 'none';
     });
-    if (!['o4-mini','o3-mini','o3','gpt-4o','gpt-4.1','gpt-4.5-preview','gpt-4o-mini'].includes(model)) {
+    if (!['o4-mini','o3-mini','o3','gpt-4.1-mini','gpt-4.1-nano','gpt-4o','gpt-4.1','gpt-4o-mini'].includes(model)) {
       document.getElementById('custom-model-group').style.display = '';
     }
 
